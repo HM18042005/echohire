@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "38403422695",
+    "firebase_url": "https://echohire-51478-default-rtdb.firebaseio.com",
+    "project_id": "echohire-51478",
+    "storage_bucket": "echohire-51478.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:38403422695:android:441a70a36250528287a542",
+        "android_client_info": {
+          "package_name": "com.example.echohire"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB97tDg6jVHenMoFXHsVGqiMPDKJIgMH_w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
