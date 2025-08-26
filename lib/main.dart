@@ -6,6 +6,7 @@ import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'state/profile_controller.dart';
 import 'screens/token_test_screen.dart';
+import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +49,7 @@ class AuthWrapper extends ConsumerWidget {
         }
 
         if (snapshot.hasData) {
-          return const ProfileScreen();
+          return const HomeScreen();
         } else {
           return const LoginScreen();
         }
@@ -111,174 +112,108 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            TextField(
-              controller: _passwordController,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-            ),
-            const SizedBox(height: 20),
-            if (_isLoading)
-              const CircularProgressIndicator()
-            else
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton(onPressed: _signIn, child: const Text('Sign In')),
-                  ElevatedButton(onPressed: _signUp, child: const Text('Sign Up')),
-                ],
+      backgroundColor: const Color(0xFF181A20),
+      body: Center(
+        child: Container(
+          width: 350,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          decoration: BoxDecoration(
+            color: const Color(0xFF23262A),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Center(
+                child: Text(
+                  'EchoHire',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-          ],
+              const SizedBox(height: 24),
+              const Text('Email', style: TextStyle(color: Colors.white)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _emailController,
+                decoration: InputDecoration(
+                  hintText: 'Enter your email',
+                  filled: true,
+                  fillColor: const Color(0xFF181A20),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                  hintStyle: const TextStyle(color: Colors.white54),
+                ),
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 16),
+              const Text('Password', style: TextStyle(color: Colors.white)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _passwordController,
+                decoration: InputDecoration(
+                  hintText: 'Enter your password',
+                  filled: true,
+                  fillColor: const Color(0xFF181A20),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                  hintStyle: const TextStyle(color: Colors.white54),
+                ),
+                style: const TextStyle(color: Colors.white),
+                obscureText: true,
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2972FF),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: _isLoading ? null : _signIn,
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Log In', style: TextStyle(fontSize: 16)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton(
+                  onPressed: () {},
+                  child: const Text('Forgot Password?', style: TextStyle(color: Colors.white54)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: GestureDetector(
+                  onTap: _signUp,
+                  child: const Text(
+                    "Don't have an account? Sign Up",
+                    style: TextStyle(color: Colors.white54, decoration: TextDecoration.underline),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key});
-
-  @override
-  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  final _authService = AuthService();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(profileControllerProvider.notifier).loadProfile();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final profileState = ref.watch(profileControllerProvider);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile'),
-        actions: [
-          IconButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const TokenTestScreen()),
-            ),
-            icon: const Icon(Icons.token),
-          ),
-          IconButton(
-            onPressed: () => _authService.signOut(),
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
-      body: profileState.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : profileState.error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Error: ${profileState.error}'),
-                      ElevatedButton(
-                        onPressed: () => ref.read(profileControllerProvider.notifier).loadProfile(),
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : profileState.profile != null
-                  ? SingleChildScrollView(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Profile Information',
-                                    style: Theme.of(context).textTheme.headlineSmall,
-                                  ),
-                                  const SizedBox(height: 16),
-                                  _buildInfoRow('Email', profileState.profile!.email),
-                                  _buildInfoRow('Display Name', profileState.profile!.displayName ?? 'Not set'),
-                                  _buildInfoRow('Headline', profileState.profile!.headline ?? 'Not set'),
-                                  _buildInfoRow('Location', profileState.profile!.location ?? 'Not set'),
-                                  _buildInfoRow('Skills', profileState.profile!.skills.isEmpty ? 'None' : profileState.profile!.skills.join(', ')),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'Created: ${_formatDate(profileState.profile!.createdAt)}',
-                                    style: Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                  Text(
-                                    'Updated: ${_formatDate(profileState.profile!.updatedAt)}',
-                                    style: Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => const EditProfileScreen(),
-                                ),
-                              ),
-                              child: const Text('Edit Profile'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : const Center(child: Text('No profile data')),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label:',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-          Expanded(child: Text(value)),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(String isoDate) {
-    try {
-      final date = DateTime.parse(isoDate);
-      return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-    } catch (e) {
-      return isoDate;
-    }
-  }
-}
+// ...existing code...
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
