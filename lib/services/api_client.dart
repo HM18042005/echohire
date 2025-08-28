@@ -49,6 +49,97 @@ class ApiClient {
     }
   }
 
+  // Interview endpoints
+  Future<Map<String, dynamic>> createInterview(Map<String, dynamic> interviewData) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl/interviews'),
+      headers: headers,
+      body: json.encode(interviewData),
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else if (response.statusCode == 401) {
+      throw Exception('Unauthorized');
+    } else {
+      throw Exception('Failed to create interview: ${response.body}');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getUserInterviews() async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/interviews'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    } else if (response.statusCode == 401) {
+      throw Exception('Unauthorized');
+    } else {
+      throw Exception('Failed to load interviews: ${response.body}');
+    }
+  }
+
+  Future<Map<String, dynamic>> getInterview(String interviewId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/interviews/$interviewId'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else if (response.statusCode == 401) {
+      throw Exception('Unauthorized');
+    } else if (response.statusCode == 404) {
+      throw Exception('Interview not found');
+    } else {
+      throw Exception('Failed to load interview: ${response.body}');
+    }
+  }
+
+  // Feedback endpoints
+  Future<Map<String, dynamic>> createFeedback(String interviewId, Map<String, dynamic> feedbackData) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl/interviews/$interviewId/feedback'),
+      headers: headers,
+      body: json.encode(feedbackData),
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else if (response.statusCode == 401) {
+      throw Exception('Unauthorized');
+    } else if (response.statusCode == 404) {
+      throw Exception('Interview not found');
+    } else {
+      throw Exception('Failed to create feedback: ${response.body}');
+    }
+  }
+
+  Future<Map<String, dynamic>> getFeedback(String interviewId) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('$baseUrl/interviews/$interviewId/feedback'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else if (response.statusCode == 401) {
+      throw Exception('Unauthorized');
+    } else if (response.statusCode == 404) {
+      throw Exception('Feedback not found');
+    } else {
+      throw Exception('Failed to load feedback: ${response.body}');
+    }
+  }
+
   Future<Map<String, dynamic>> healthCheck() async {
     final response = await http.get(Uri.parse('$baseUrl/health'));
     if (response.statusCode == 200) {
