@@ -7,6 +7,7 @@ import 'services/auth_service.dart';
 import 'state/profile_controller.dart';
 import 'screens/token_test_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/signup_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -82,25 +83,6 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Sign in failed: $e')),
-        );
-      }
-    }
-    if (mounted) {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _signUp() async {
-    setState(() => _isLoading = true);
-    try {
-      await _authService.createUserWithEmailAndPassword(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign up failed: $e')),
         );
       }
     }
@@ -198,7 +180,13 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 12),
               Center(
                 child: GestureDetector(
-                  onTap: _signUp,
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const SignUpScreen(),
+                      ),
+                    );
+                  },
                   child: const Text(
                     "Don't have an account? Sign Up",
                     style: TextStyle(color: Colors.white54, decoration: TextDecoration.underline),

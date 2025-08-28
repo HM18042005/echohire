@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'new_interview_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -12,12 +13,6 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF181A20),
         elevation: 0,
         title: const Text('EchoHire', style: TextStyle(color: Colors.white)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
@@ -91,7 +86,15 @@ class HomeScreen extends StatelessWidget {
           ),
         ],
         currentIndex: 0,
-        onTap: (index) {},
+        onTap: (index) {
+          if (index == 1) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const ProfileScreen(),
+              ),
+            );
+          }
+        },
       ),
     );
   }

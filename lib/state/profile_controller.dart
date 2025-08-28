@@ -40,7 +40,9 @@ class ProfileController extends StateNotifier<ProfileState> {
       final profile = UserProfile.fromJson(profileData);
       state = state.copyWith(profile: profile, isLoading: false);
     } catch (e) {
+      print('Profile controller error: $e');
       state = state.copyWith(error: e.toString(), isLoading: false);
+      // Don't throw the error, just set it in state so UI can handle it gracefully
     }
   }
 
