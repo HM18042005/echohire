@@ -255,14 +255,17 @@ async def get_user_interviews(user_data: dict = Depends(verify_firebase_token)):
     try:
         uid = user_data["uid"]
         
-        # Get user's interviews from Firebase
-        interviews_ref = db.collection("interviews").where("userId", "==", uid).order_by("interviewDate", direction=firestore.Query.DESCENDING)
+        # Get user's interviews from Firebase (simplified query to avoid index requirement)
+        interviews_ref = db.collection("interviews").where("userId", "==", uid)
         interviews = interviews_ref.stream()
 
         interview_list = []
         for interview in interviews:
             interview_data = interview.to_dict()
             interview_list.append(InterviewOut(**interview_data))
+
+        # Sort by interview date in Python instead of Firestore
+        interview_list.sort(key=lambda x: x.interviewDate, reverse=True)
 
         return interview_list
     except Exception as e:

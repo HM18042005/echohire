@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'state/profile_controller.dart';
-import 'screens/token_test_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/signup_screen.dart';
 

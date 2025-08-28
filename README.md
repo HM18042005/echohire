@@ -98,6 +98,11 @@ flutter run
 2. Place `firebase-service-account.json` in `backend/`
 3. Update Firebase configuration in `lib/firebase_options.dart`
 
+### Recent Fixes (August 28, 2025)
+- ✅ **Fixed Firestore Query Issue**: Resolved "query requires an index" error by implementing client-side sorting
+- ✅ **Code Cleanup**: Removed compilation errors and deprecated warnings
+- ✅ **Improved Performance**: Optimized backend queries for better reliability
+
 ## 📋 **PENDING FEATURES**
 
 ### 🔴 **HIGH PRIORITY**

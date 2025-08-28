@@ -21,7 +21,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     // Load profile data when the screen is first displayed
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(profileControllerProvider.notifier).loadProfile().catchError((error) {
-        print('Profile loading error: $error');
         // If profile loading fails, we can still show the UI with basic user info
       });
     });
@@ -88,9 +87,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
+                          color: Colors.orange.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                          border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
                         ),
                         child: Row(
                           children: [
@@ -153,9 +152,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               return Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF2972FF).withOpacity(0.2),
+                                  color: const Color(0xFF2972FF).withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: const Color(0xFF2972FF).withOpacity(0.5)),
+                                  border: Border.all(color: const Color(0xFF2972FF).withValues(alpha: 0.5)),
                                 ),
                                 child: Text(
                                   skill,
