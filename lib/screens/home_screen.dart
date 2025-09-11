@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'new_interview_screen.dart';
 import 'profile_screen.dart';
+import 'interview_screen.dart';
 import '../state/interview_controller.dart';
 import '../models/interview.dart';
 
@@ -50,6 +51,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            
+            // Quick action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const InterviewScreen()),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2972FF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const Icon(Icons.quiz),
+                    label: const Text('My Interviews'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const NewInterviewScreen()),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1F222A),
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0xFF2972FF)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('New Interview'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            
             const Text(
               'Recent Interviews',
               style: TextStyle(
@@ -86,12 +129,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.quiz),
+            label: 'Interviews',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
         onTap: (index) {
           if (index == 1) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const InterviewScreen()),
+            );
+          } else if (index == 2) {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (context) => const ProfileScreen()),
             );

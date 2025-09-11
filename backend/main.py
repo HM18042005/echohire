@@ -122,6 +122,43 @@ class FeedbackOut(BaseModel):
     recommendation: str
     createdAt: str
 
+# AI Interview Generation Models
+class InterviewQuestionModel(BaseModel):
+    question: str
+    category: str
+    difficulty: str
+
+class InterviewRequest(BaseModel):
+    role: str = Field(..., max_length=200)
+    type: str = Field(..., max_length=50)
+    level: str = Field(..., max_length=50)
+    userId: str
+
+    @field_validator('type')
+    @classmethod
+    def validate_type(cls, v):
+        valid_types = ['technical', 'behavioral', 'system-design', 'coding']
+        if v not in valid_types:
+            raise ValueError(f'Type must be one of: {valid_types}')
+        return v
+
+    @field_validator('level')
+    @classmethod
+    def validate_level(cls, v):
+        valid_levels = ['junior', 'mid', 'senior', 'lead']
+        if v not in valid_levels:
+            raise ValueError(f'Level must be one of: {valid_levels}')
+        return v
+
+class InterviewSessionOut(BaseModel):
+    id: str
+    userId: str
+    role: str
+    type: str
+    level: str
+    questions: List[InterviewQuestionModel]
+    createdAt: str
+
 # Firebase token verification dependency
 async def verify_firebase_token(authorization: str = Header(...)):
     if not authorization.startswith("Bearer "):
@@ -139,6 +176,303 @@ async def verify_firebase_token(authorization: str = Header(...)):
 @app.get("/health")
 async def health_check():
     return {"ok": True}
+
+# AI Interview Generation Endpoint
+@app.post("/api/generate-interview", response_model=InterviewSessionOut)
+async def generate_interview(
+    request: InterviewRequest,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """
+    Generate an AI-powered interview session with questions based on role, type, and level.
+    For now, this returns mock data until AI integration is complete.
+    """
+    try:
+        # Verify user owns this request
+        if request.userId != user_data["uid"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Generate interview session ID
+        session_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat() + "Z"
+
+        # Mock questions based on type and level (replace with AI generation later)
+        questions = _generate_mock_questions(request.type, request.level, request.role)
+
+        # Create interview session
+        interview_session = {
+            "id": session_id,
+            "userId": request.userId,
+            "role": request.role,
+            "type": request.type,
+            "level": request.level,
+            "questions": [q.dict() for q in questions],
+            "createdAt": now
+        }
+
+        # Save to Firebase
+        session_ref = db.collection("interview_sessions").document(session_id)
+        session_ref.set(interview_session)
+
+        return InterviewSessionOut(**interview_session)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Interview generation error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate interview")
+
+def _generate_mock_questions(interview_type: str, level: str, role: str) -> List[InterviewQuestionModel]:
+    """
+    Generate mock questions based on interview parameters.
+    This will be replaced with AI generation (Gemini/Vapi) in the future.
+    """
+    base_questions = {
+        "technical": {
+            "junior": [
+                InterviewQuestionModel(
+                    question=f"Explain the basic concepts of object-oriented programming in the context of {role}.",
+                    category="fundamentals",
+                    difficulty="easy"
+                ),
+                InterviewQuestionModel(
+                    question="What is the difference between a stack and a queue? Provide examples.",
+                    category="data structures",
+                    difficulty="easy"
+                ),
+                InterviewQuestionModel(
+                    question=f"How would you debug a simple application as a {role}?",
+                    category="problem solving",
+                    difficulty="easy"
+                ),
+                InterviewQuestionModel(
+                    question="Explain the concept of Big O notation with examples.",
+                    category="algorithms",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question=f"What are the key responsibilities of a {role} in a development team?",
+                    category="role specific",
+                    difficulty="easy"
+                )
+            ],
+            "mid": [
+                InterviewQuestionModel(
+                    question=f"Design a scalable architecture for a {role} application with 10,000 daily users.",
+                    category="system design",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question="Explain the CAP theorem and its implications in distributed systems.",
+                    category="distributed systems",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question="How would you optimize database queries for better performance?",
+                    category="databases",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question=f"Describe your approach to code review and mentoring junior {role}s.",
+                    category="leadership",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question="Implement a thread-safe singleton pattern and explain potential issues.",
+                    category="concurrency",
+                    difficulty="medium"
+                )
+            ],
+            "senior": [
+                InterviewQuestionModel(
+                    question=f"Design a microservices architecture for a large-scale {role} platform.",
+                    category="system design",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="How would you handle data consistency in a distributed system?",
+                    category="distributed systems",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question=f"Describe your strategy for technical debt management in a {role} team.",
+                    category="technical leadership",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="Design a caching strategy for a high-traffic application.",
+                    category="performance",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question=f"How do you stay current with technology trends relevant to {role}?",
+                    category="continuous learning",
+                    difficulty="medium"
+                )
+            ],
+            "lead": [
+                InterviewQuestionModel(
+                    question=f"How would you scale a {role} team from 5 to 50 engineers?",
+                    category="leadership",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="Design a disaster recovery plan for a critical production system.",
+                    category="system design",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question=f"Describe your approach to setting technical vision for a {role} organization.",
+                    category="strategic thinking",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="How do you balance technical excellence with business requirements?",
+                    category="business alignment",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question=f"What metrics would you use to measure success in a {role} team?",
+                    category="metrics",
+                    difficulty="medium"
+                )
+            ]
+        },
+        "behavioral": {
+            "junior": [
+                InterviewQuestionModel(
+                    question="Tell me about a time when you had to learn a new technology quickly.",
+                    category="adaptability",
+                    difficulty="easy"
+                ),
+                InterviewQuestionModel(
+                    question="Describe a challenging problem you solved and your approach.",
+                    category="problem solving",
+                    difficulty="easy"
+                ),
+                InterviewQuestionModel(
+                    question="How do you handle feedback and criticism?",
+                    category="growth mindset",
+                    difficulty="easy"
+                ),
+                InterviewQuestionModel(
+                    question="Tell me about a time you worked effectively in a team.",
+                    category="teamwork",
+                    difficulty="easy"
+                ),
+                InterviewQuestionModel(
+                    question=f"Why are you interested in working as a {role}?",
+                    category="motivation",
+                    difficulty="easy"
+                )
+            ],
+            "mid": [
+                InterviewQuestionModel(
+                    question="Describe a time when you had to make a difficult technical decision.",
+                    category="decision making",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question="Tell me about a project that didn't go as planned. How did you handle it?",
+                    category="resilience",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question="How do you prioritize competing demands on your time?",
+                    category="time management",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question="Describe a time when you had to influence others without authority.",
+                    category="influence",
+                    difficulty="medium"
+                ),
+                InterviewQuestionModel(
+                    question=f"How do you approach mentoring junior {role}s?",
+                    category="mentorship",
+                    difficulty="medium"
+                )
+            ],
+            "senior": [
+                InterviewQuestionModel(
+                    question="Tell me about a time you led a significant technical change.",
+                    category="change management",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="Describe how you've handled a conflict within your team.",
+                    category="conflict resolution",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="How do you ensure your team delivers high-quality work under pressure?",
+                    category="quality management",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question=f"Tell me about a time you had to make a strategic decision for your {role} team.",
+                    category="strategic thinking",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="How do you balance innovation with reliability?",
+                    category="risk management",
+                    difficulty="medium"
+                )
+            ],
+            "lead": [
+                InterviewQuestionModel(
+                    question=f"Describe your vision for the future of {role} in your organization.",
+                    category="vision",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="How do you develop and retain top technical talent?",
+                    category="talent management",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="Tell me about a time you had to make an unpopular but necessary decision.",
+                    category="tough decisions",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question="How do you measure and improve team performance?",
+                    category="performance management",
+                    difficulty="hard"
+                ),
+                InterviewQuestionModel(
+                    question=f"What's the biggest challenge facing {role}s today?",
+                    category="industry insight",
+                    difficulty="medium"
+                )
+            ]
+        }
+    }
+
+    # Get questions for the specific type and level
+    questions = base_questions.get(interview_type, {}).get(level, [])
+    
+    # If no specific questions found, return generic ones
+    if not questions:
+        questions = [
+            InterviewQuestionModel(
+                question=f"Tell me about your experience as a {role}.",
+                category="experience",
+                difficulty="easy"
+            ),
+            InterviewQuestionModel(
+                question=f"What interests you most about this {role} position?",
+                category="motivation",
+                difficulty="easy"
+            ),
+            InterviewQuestionModel(
+                question=f"How do you stay updated with {role} best practices?",
+                category="continuous learning",
+                difficulty="easy"
+            )
+        ]
+    
+    return questions
 
 @app.get("/me", response_model=ProfileOut)
 async def get_profile(user_data: dict = Depends(verify_firebase_token)):
@@ -299,6 +633,40 @@ async def get_interview(
     except Exception as e:
         print(f"Interview fetch error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch interview")
+
+# Interview Sessions Endpoints
+@app.get("/api/interviews/{user_id}", response_model=List[InterviewSessionOut])
+async def get_user_interview_sessions(
+    user_id: str,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """
+    Get all interview sessions for a specific user.
+    This endpoint is used by the Flutter app's ApiService.
+    """
+    try:
+        # Verify user can access this data
+        if user_id != user_data["uid"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get user's interview sessions from Firebase
+        sessions_ref = db.collection("interview_sessions").where("userId", "==", user_id)
+        sessions = sessions_ref.stream()
+
+        session_list = []
+        for session in sessions:
+            session_data = session.to_dict()
+            session_list.append(InterviewSessionOut(**session_data))
+
+        # Sort by creation date (newest first)
+        session_list.sort(key=lambda x: x.createdAt, reverse=True)
+
+        return session_list
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Interview sessions fetch error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch interview sessions")
 
 # Feedback Endpoints
 @app.post("/interviews/{interview_id}/feedback", response_model=FeedbackOut)

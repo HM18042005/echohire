@@ -2,8 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:provider/provider.dart' as provider;
 import 'firebase_options.dart';
 import 'services/auth_service.dart';
+import 'services/api_service.dart';
+import 'providers/interview_provider.dart';
 import 'state/profile_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/signup_screen.dart';
@@ -13,7 +16,25 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  runApp(const ProviderScope(child: MyApp()));
+  runApp(
+    // Wrap with MultiProvider to provide services using Provider pattern
+    provider.MultiProvider(
+      providers: [
+        // Provide ApiService as a singleton
+        provider.Provider<ApiService>(
+          create: (_) => ApiServiceSingleton.instance,
+          dispose: (_, apiService) => apiService.dispose(),
+        ),
+        // Provide InterviewProvider that depends on ApiService
+        provider.ChangeNotifierProvider<InterviewProvider>(
+          create: (context) => InterviewProvider(
+            context.read<ApiService>(),
+          ),
+        ),
+      ],
+      child: const ProviderScope(child: MyApp()),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
