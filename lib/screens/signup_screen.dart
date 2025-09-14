@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
+import '../state/profile_controller.dart';
 
-class SignUpScreen extends StatefulWidget {
+class SignUpScreen extends ConsumerStatefulWidget {
   const SignUpScreen({super.key});
 
   @override
-  State<SignUpScreen> createState() => _SignUpScreenState();
+  ConsumerState<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _SignUpScreenState extends State<SignUpScreen> {
+class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   final _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
@@ -37,17 +39,51 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await _authService.createUserWithEmailAndPassword(
+      // Create Firebase user account
+      final userCredential = await _authService.createUserWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text,
       );
       
-      // TODO: Save additional profile data to backend after successful signup
+      // Parse skills from comma-separated string
+      final skillsText = _skillsController.text.trim();
+      final skills = skillsText.isNotEmpty 
+          ? skillsText.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+          : <String>[];
+      
+      // Save additional profile data using ProfileController
+      await ref.read(profileControllerProvider.notifier).updateProfile(
+        displayName: _displayNameController.text.trim(),
+        headline: _headlineController.text.trim().isNotEmpty ? _headlineController.text.trim() : null,
+        location: _locationController.text.trim().isNotEmpty ? _locationController.text.trim() : null,
+        skills: skills.isNotEmpty ? skills : null,
+      );
+      
+      // Check for any profile update errors
+      final profileState = ref.read(profileControllerProvider);
+      if (profileState.error != null) {
+        throw Exception('Failed to save profile: ${profileState.error}');
+      }
+      
+      // Show success message and navigate
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Account created successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Navigate to home screen or wherever appropriate
+        Navigator.of(context).pushReplacementNamed('/home');
+      }
       
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign up failed: $e')),
+          SnackBar(
+            content: Text('Sign up failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
