@@ -9,6 +9,14 @@ class Interview {
   final String? userId;
   final DateTime createdAt;
   final DateTime updatedAt;
+  
+  // AI-specific fields
+  final String? aiSessionId;        // Vapi session ID
+  final String? audioRecordingUrl;  // Recording URL
+  final String? transcriptUrl;      // Transcript URL
+  final List<String>? aiInsights;   // AI-generated insights
+  final String? vapiCallId;         // Vapi call identifier
+  final int? interviewDuration;     // Duration in seconds
 
   Interview({
     required this.id,
@@ -20,6 +28,12 @@ class Interview {
     this.userId,
     required this.createdAt,
     required this.updatedAt,
+    this.aiSessionId,
+    this.audioRecordingUrl,
+    this.transcriptUrl,
+    this.aiInsights,
+    this.vapiCallId,
+    this.interviewDuration,
   });
 
   factory Interview.fromJson(Map<String, dynamic> json) {
@@ -36,6 +50,12 @@ class Interview {
       userId: json['userId'],
       createdAt: DateTime.parse(json['createdAt']),
       updatedAt: DateTime.parse(json['updatedAt']),
+      aiSessionId: json['aiSessionId'],
+      audioRecordingUrl: json['audioRecordingUrl'],
+      transcriptUrl: json['transcriptUrl'],
+      aiInsights: json['aiInsights'] != null ? List<String>.from(json['aiInsights']) : null,
+      vapiCallId: json['vapiCallId'],
+      interviewDuration: json['interviewDuration'],
     );
   }
 
@@ -50,6 +70,12 @@ class Interview {
       'userId': userId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'aiSessionId': aiSessionId,
+      'audioRecordingUrl': audioRecordingUrl,
+      'transcriptUrl': transcriptUrl,
+      'aiInsights': aiInsights,
+      'vapiCallId': vapiCallId,
+      'interviewDuration': interviewDuration,
     };
   }
 
@@ -63,6 +89,12 @@ class Interview {
     String? userId,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? aiSessionId,        // NEW: AI-specific fields
+    String? audioRecordingUrl,
+    String? transcriptUrl,
+    List<String>? aiInsights,
+    String? vapiCallId,
+    int? interviewDuration,
   }) {
     return Interview(
       id: id ?? this.id,
@@ -74,12 +106,19 @@ class Interview {
       userId: userId ?? this.userId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      aiSessionId: aiSessionId ?? this.aiSessionId,
+      audioRecordingUrl: audioRecordingUrl ?? this.audioRecordingUrl,
+      transcriptUrl: transcriptUrl ?? this.transcriptUrl,
+      aiInsights: aiInsights ?? this.aiInsights,
+      vapiCallId: vapiCallId ?? this.vapiCallId,
+      interviewDuration: interviewDuration ?? this.interviewDuration,
     );
   }
 }
 
 enum InterviewStatus {
   pending,
+  inProgress,    // NEW: AI is conducting the interview
   completed,
   scheduled,
   cancelled,

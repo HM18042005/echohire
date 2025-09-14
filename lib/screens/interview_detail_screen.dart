@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../models/interview.dart';
+import 'ai_interview_screen.dart';
 
 /// Screen that displays detailed information about a specific interview session
-/// Shows interview metadata and all questions in an organized, scrollable layout
+/// Shows interview metadata and allows starting AI-powered interviews
 class InterviewDetailScreen extends StatelessWidget {
-  final InterviewSession interview;
+  final Interview interview;
 
   const InterviewDetailScreen({
     super.key,
@@ -17,7 +19,7 @@ class InterviewDetailScreen extends StatelessWidget {
       backgroundColor: const Color(0xFF181A20),
       appBar: AppBar(
         title: Text(
-          '${interview.role} Interview',
+          '${interview.jobTitle} Interview',
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
@@ -61,23 +63,74 @@ class InterviewDetailScreen extends StatelessWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // TODO: Navigate to interview session or start the interview
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Starting interview session...'),
-              backgroundColor: Colors.blue,
-            ),
-          );
+        onPressed: () async {
+          await _startAIInterview();
         },
         backgroundColor: Colors.blue,
         icon: const Icon(Icons.play_arrow, color: Colors.white),
         label: const Text(
-          'Start Interview',
+          'Start AI Interview',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
     );
+  }
+
+  /// Start an AI-conducted interview session
+  Future<void> _startAIInterview() async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          backgroundColor: Color(0xFF262A34),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.blue),
+              SizedBox(height: 16),
+              Text(
+                'Starting AI Interview...',
+                style: TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Start AI interview
+      final response = await ApiServiceSingleton.instance.startAIInterview(interview.id);
+      final aiSessionId = response['aiSessionId'] as String;
+
+      // Close loading dialog
+      if (mounted) {
+        Navigator.of(context).pop();
+        
+        // Navigate to AI Interview Screen
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => AIInterviewScreen(
+              interview: interview,
+              aiSessionId: aiSessionId,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // Close loading dialog if open
+      if (mounted) {
+        Navigator.of(context).pop();
+        
+        // Show error
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to start AI interview: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   /// Builds the header section with interview metadata

@@ -309,6 +309,110 @@ class ApiService {
       return false;
     }
   }
+
+  // AI Interview Methods
+
+  /// Start an AI-conducted interview session
+  Future<Map<String, dynamic>> startAIInterview(String interviewId, {String? phoneNumber}) async {
+    final url = Uri.parse('$baseUrl/interviews/$interviewId/start-ai');
+    
+    try {
+      final response = await _client.post(
+        url,
+        headers: _getHeaders(),
+        body: jsonEncode({
+          'interviewId': interviewId,
+          if (phoneNumber != null) 'candidatePhoneNumber': phoneNumber,
+        }),
+      ).timeout(
+        const Duration(seconds: 30),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw ApiException(
+          'Failed to start AI interview: ${response.statusCode}',
+          response.statusCode,
+        );
+      }
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error starting AI interview: $e', 500);
+    }
+  }
+
+  /// Get the status of an AI interview session
+  Future<Map<String, dynamic>> getAIInterviewStatus(String interviewId) async {
+    final url = Uri.parse('$baseUrl/interviews/$interviewId/ai-status');
+    
+    try {
+      final response = await _client.get(
+        url,
+        headers: _getHeaders(),
+      ).timeout(
+        const Duration(seconds: 10),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw ApiException(
+          'Failed to get AI interview status: ${response.statusCode}',
+          response.statusCode,
+        );
+      }
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error getting AI status: $e', 500);
+    }
+  }
+
+  /// Get AI-generated feedback for a completed interview
+  Future<Map<String, dynamic>> getAIFeedback(String interviewId) async {
+    final url = Uri.parse('$baseUrl/interviews/$interviewId/ai-feedback');
+    
+    try {
+      final response = await _client.get(
+        url,
+        headers: _getHeaders(),
+      ).timeout(
+        const Duration(seconds: 15),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw ApiException(
+          'Failed to get AI feedback: ${response.statusCode}',
+          response.statusCode,
+        );
+      }
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error getting AI feedback: $e', 500);
+    }
+  }
+
+  /// Stop an ongoing AI interview session
+  Future<bool> stopAIInterview(String interviewId) async {
+    final url = Uri.parse('$baseUrl/interviews/$interviewId/stop-ai');
+    
+    try {
+      final response = await _client.post(
+        url,
+        headers: _getHeaders(),
+        body: jsonEncode({}),
+      ).timeout(
+        const Duration(seconds: 10),
+      );
+
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+}
 }
 
 /// Singleton instance of ApiService for global access

@@ -1,17 +1,32 @@
 # FastAPI backend with Firebase authentication and profile management
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel, Field, field_validator
 import os
 import uuid
+import asyncio
+import json
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# AI Integration imports
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import httpx
+from ai_services import gemini_service, vapi_service
 
 # Initialize Firebase Admin SDK
 cred = credentials.Certificate("firebase-service-account.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
+
+# Initialize Google Gemini AI
+genai.configure(api_key=os.getenv("GOOGLE_AI_API_KEY", "your-gemini-api-key-here"))
 
 app = FastAPI(title="EchoHire API", version="1.0.0")
 
@@ -158,6 +173,37 @@ class InterviewSessionOut(BaseModel):
     level: str
     questions: List[InterviewQuestionModel]
     createdAt: str
+
+# AI-specific Models
+class AIInterviewStartRequest(BaseModel):
+    interviewId: str
+    candidatePhoneNumber: Optional[str] = None
+    vapiSettings: Optional[Dict[str, Any]] = None
+
+class AIInterviewStartResponse(BaseModel):
+    aiSessionId: str
+    vapiCallId: str
+    status: str
+    message: str
+
+class AIInterviewStatusResponse(BaseModel):
+    aiSessionId: str
+    status: str  # "pending", "in_progress", "completed", "failed"
+    duration: Optional[int] = None
+    transcriptUrl: Optional[str] = None
+    audioRecordingUrl: Optional[str] = None
+
+class AIFeedbackResponse(BaseModel):
+    interviewId: str
+    aiAnalysisId: str
+    overallScore: int
+    overallImpression: str
+    keyInsights: List[str]
+    confidenceScore: float
+    speechAnalysis: Dict[str, Any]
+    transcriptAnalysis: str
+    emotionalAnalysis: Dict[str, float]
+    recommendation: str
 
 # Firebase token verification dependency
 async def verify_firebase_token(authorization: str = Header(...)):
@@ -745,6 +791,225 @@ async def get_feedback(
     except Exception as e:
         print(f"Feedback fetch error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch feedback")
+
+# AI Interview Endpoints
+
+@app.post("/interviews/{interview_id}/start-ai", response_model=AIInterviewStartResponse)
+async def start_ai_interview(
+    interview_id: str,
+    request: AIInterviewStartRequest,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """Start an AI-conducted interview session with Vapi integration"""
+    try:
+        uid = user_data["uid"]
+        
+        # Verify interview exists and belongs to user
+        interview_ref = db.collection("interviews").document(interview_id)
+        interview_doc = interview_ref.get()
+        
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        
+        interview_data = interview_doc.to_dict()
+        if interview_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Generate AI session ID
+        ai_session_id = str(uuid.uuid4())
+        vapi_call_id = f"vapi_{ai_session_id}"
+        
+        # Start Vapi interview call
+        vapi_response = await vapi_service.start_interview_call(
+            interview_data, 
+            request.candidatePhoneNumber
+        )
+        
+        # Update interview with AI session info
+        now = datetime.utcnow().isoformat()
+        interview_ref.update({
+            "aiSessionId": ai_session_id,
+            "vapiCallId": vapi_response.get("callId", vapi_call_id),
+            "status": "inProgress",
+            "updatedAt": now
+        })
+        
+        return AIInterviewStartResponse(
+            aiSessionId=ai_session_id,
+            vapiCallId=vapi_response.get("callId", vapi_call_id),
+            status="in_progress",
+            message=vapi_response.get("message", "AI interview session started successfully")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"AI interview start error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start AI interview")
+
+@app.get("/interviews/{interview_id}/ai-status", response_model=AIInterviewStatusResponse)
+async def get_ai_interview_status(
+    interview_id: str,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """Get the current status of an AI interview session"""
+    try:
+        uid = user_data["uid"]
+        
+        # Get interview data
+        interview_ref = db.collection("interviews").document(interview_id)
+        interview_doc = interview_ref.get()
+        
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        
+        interview_data = interview_doc.to_dict()
+        if interview_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        ai_session_id = interview_data.get("aiSessionId")
+        if not ai_session_id:
+            raise HTTPException(status_code=404, detail="No AI session found for this interview")
+        
+        # Check Vapi call status
+        vapi_call_id = interview_data.get("vapiCallId")
+        if vapi_call_id:
+            vapi_status = await vapi_service.get_call_status(vapi_call_id)
+            
+            return AIInterviewStatusResponse(
+                aiSessionId=ai_session_id,
+                status=vapi_status.get("status", interview_data.get("status", "pending")),
+                duration=vapi_status.get("duration", interview_data.get("interviewDuration")),
+                transcriptUrl=vapi_status.get("transcriptUrl", interview_data.get("transcriptUrl")),
+                audioRecordingUrl=vapi_status.get("recordingUrl", interview_data.get("audioRecordingUrl"))
+            )
+        else:
+            return AIInterviewStatusResponse(
+                aiSessionId=ai_session_id,
+                status=interview_data.get("status", "pending"),
+                duration=interview_data.get("interviewDuration"),
+                transcriptUrl=interview_data.get("transcriptUrl"),
+                audioRecordingUrl=interview_data.get("audioRecordingUrl")
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"AI status check error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get AI interview status")
+
+@app.get("/interviews/{interview_id}/ai-feedback", response_model=AIFeedbackResponse)
+async def get_ai_feedback(
+    interview_id: str,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """Get AI-generated feedback for a completed interview"""
+    try:
+        uid = user_data["uid"]
+        
+        # Get interview data
+        interview_ref = db.collection("interviews").document(interview_id)
+        interview_doc = interview_ref.get()
+        
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        
+        interview_data = interview_doc.to_dict()
+        if interview_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if interview is completed
+        if interview_data.get("status") != "completed":
+            raise HTTPException(status_code=400, detail="Interview not completed yet")
+        
+        # Get existing feedback or generate new AI feedback
+        feedback_ref = db.collection("feedback").where("interviewId", "==", interview_id).where("userId", "==", uid)
+        feedback_docs = list(feedback_ref.stream())
+        
+        if feedback_docs:
+            # Return existing AI feedback
+            feedback_data = feedback_docs[0].to_dict()
+            return AIFeedbackResponse(
+                interviewId=interview_id,
+                aiAnalysisId=feedback_data.get("aiAnalysisId", ""),
+                overallScore=feedback_data.get("overallScore", 0),
+                overallImpression=feedback_data.get("overallImpression", ""),
+                keyInsights=feedback_data.get("keyInsights", []),
+                confidenceScore=feedback_data.get("confidenceScore", 0.0),
+                speechAnalysis=feedback_data.get("speechAnalysis", {}),
+                transcriptAnalysis=feedback_data.get("transcriptAnalysis", ""),
+                emotionalAnalysis=feedback_data.get("emotionalAnalysis", {}),
+                recommendation=feedback_data.get("finalVerdict", "")
+            )
+        else:
+            # Generate new AI feedback using Gemini
+            ai_analysis_id = str(uuid.uuid4())
+            
+            # Get interview transcript from Vapi
+            vapi_call_id = interview_data.get("vapiCallId")
+            if vapi_call_id:
+                transcript = await vapi_service.get_call_transcript(vapi_call_id)
+            else:
+                transcript = "Mock interview transcript for analysis"
+            
+            # Analyze with Gemini AI
+            ai_feedback_data = await gemini_service.analyze_interview_transcript(transcript, interview_data)
+            
+            # Structure the response
+            return AIFeedbackResponse(
+                interviewId=interview_id,
+                aiAnalysisId=ai_analysis_id,
+                overallScore=ai_feedback_data.get("overallScore", 75),
+                overallImpression=ai_feedback_data.get("overallImpression", "Analysis completed"),
+                keyInsights=ai_feedback_data.get("keyInsights", []),
+                confidenceScore=ai_feedback_data.get("confidenceScore", 0.8),
+                speechAnalysis=ai_feedback_data.get("speechAnalysis", {}),
+                transcriptAnalysis=ai_feedback_data.get("transcriptAnalysis", ""),
+                emotionalAnalysis=ai_feedback_data.get("emotionalAnalysis", {}),
+                recommendation=ai_feedback_data.get("recommendation", "Review recommended")
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"AI feedback error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get AI feedback")
+
+@app.post("/interviews/{interview_id}/stop-ai")
+async def stop_ai_interview(
+    interview_id: str,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """Stop an ongoing AI interview session"""
+    try:
+        uid = user_data["uid"]
+        
+        # Get interview data
+        interview_ref = db.collection("interviews").document(interview_id)
+        interview_doc = interview_ref.get()
+        
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        
+        interview_data = interview_doc.to_dict()
+        if interview_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Update interview status
+        now = datetime.utcnow().isoformat()
+        interview_ref.update({
+            "status": "cancelled",
+            "updatedAt": now
+        })
+        
+        # TODO: Stop Vapi call
+        # await stop_vapi_call(interview_data.get("vapiCallId"))
+        
+        return {"message": "AI interview stopped successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"AI interview stop error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to stop AI interview")
 
 if __name__ == "__main__":
     import uvicorn

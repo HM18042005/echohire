@@ -9,6 +9,14 @@ class InterviewFeedback {
   final String finalVerdict;
   final FeedbackRecommendation recommendation;
   final DateTime createdAt;
+  
+  // AI-specific fields
+  final String? aiAnalysisId;       // Gemini analysis session ID
+  final Map<String, dynamic>? speechAnalysis;  // Voice pattern analysis
+  final List<String>? keyInsights;  // AI-generated insights
+  final double? confidenceScore;    // AI confidence in assessment
+  final String? transcriptAnalysis; // Analysis of speech content
+  final Map<String, double>? emotionalAnalysis; // Emotion detection results
 
   InterviewFeedback({
     required this.id,
