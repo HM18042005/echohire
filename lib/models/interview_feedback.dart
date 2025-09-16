@@ -28,6 +28,12 @@ class InterviewFeedback {
     required this.finalVerdict,
     required this.recommendation,
     required this.createdAt,
+    this.aiAnalysisId,
+    this.speechAnalysis,
+    this.keyInsights,
+    this.confidenceScore,
+    this.transcriptAnalysis,
+    this.emotionalAnalysis,
   });
 
   factory InterviewFeedback.fromJson(Map<String, dynamic> json) {
@@ -46,6 +52,16 @@ class InterviewFeedback {
         orElse: () => FeedbackRecommendation.notRecommended,
       ),
       createdAt: DateTime.parse(json['createdAt']),
+      aiAnalysisId: json['aiAnalysisId'],
+      speechAnalysis: json['speechAnalysis'],
+      keyInsights: json['keyInsights'] != null 
+          ? List<String>.from(json['keyInsights'])
+          : null,
+      confidenceScore: json['confidenceScore']?.toDouble(),
+      transcriptAnalysis: json['transcriptAnalysis'],
+      emotionalAnalysis: json['emotionalAnalysis'] != null
+          ? Map<String, double>.from(json['emotionalAnalysis'])
+          : null,
     );
   }
 
@@ -60,6 +76,12 @@ class InterviewFeedback {
       'finalVerdict': finalVerdict,
       'recommendation': recommendation.toString().split('.').last,
       'createdAt': createdAt.toIso8601String(),
+      'aiAnalysisId': aiAnalysisId,
+      'speechAnalysis': speechAnalysis,
+      'keyInsights': keyInsights,
+      'confidenceScore': confidenceScore,
+      'transcriptAnalysis': transcriptAnalysis,
+      'emotionalAnalysis': emotionalAnalysis,
     };
   }
 }

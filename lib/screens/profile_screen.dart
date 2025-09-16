@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'feedback_screen.dart';
 import '../services/auth_service.dart';
 import '../state/profile_controller.dart';
-import '../main.dart';
+import '../models/user_profile.dart';
 
+/// ProfileScreen displays and allows editing of user profile information
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
@@ -14,316 +14,596 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final _authService = AuthService();
+  bool _isEditMode = false;
+
+  // Controllers for edit mode
+  final _nameController = TextEditingController();
+  final _headlineController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _skillsController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
   @override
-  void initState() {
-    super.initState();
-    // Load profile data when the screen is first displayed
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(profileControllerProvider.notifier).loadProfile().catchError((error) {
-        // If profile loading fails, we can still show the UI with basic user info
-      });
-    });
+  void dispose() {
+    _nameController.dispose();
+    _headlineController.dispose();
+    _locationController.dispose();
+    _skillsController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final profileState = ref.watch(profileControllerProvider);
-    final currentUser = _authService.currentUser;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF181A20),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF181A20),
-        elevation: 0,
-        title: const Text('Profile', style: TextStyle(color: Colors.white)),
-        centerTitle: true,
+        title: const Text('Profile'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () async {
-              await _authService.signOut();
-              // Pop all screens to go back to the AuthWrapper
-              if (context.mounted) {
-                Navigator.of(context).popUntil((route) => route.isFirst);
+          if (profileState.profile != null)
+            IconButton(
+              icon: Icon(_isEditMode ? Icons.close : Icons.edit),
+              onPressed: () {
+                if (_isEditMode) {
+                  _cancelEdit();
+                } else {
+                  _startEdit(profileState.profile!);
+                }
+              },
+            ),
+          PopupMenuButton(
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'refresh',
+                child: Row(
+                  children: [
+                    Icon(Icons.refresh),
+                    SizedBox(width: 8),
+                    Text('Refresh'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Sign Out', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (value) {
+              if (value == 'refresh') {
+                ref.read(profileControllerProvider.notifier).loadProfile();
+              } else if (value == 'logout') {
+                _showLogoutDialog();
               }
             },
           ),
         ],
       ),
-      body: SafeArea(
-        child: profileState.isLoading
-            ? const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: Color(0xFF2972FF)),
-                    SizedBox(height: 16),
-                    Text('Loading profile...', style: TextStyle(color: Colors.white54)),
-                  ],
-                ),
-              )
-            : SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    Text(
-                      profileState.profile?.displayName ?? currentUser?.displayName ?? 'User',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 24,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      profileState.profile?.email ?? currentUser?.email ?? '',
-                      style: const TextStyle(color: Colors.white54, fontSize: 15),
-                    ),
-                    if (profileState.error != null) ...[
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.warning, color: Colors.orange, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Profile sync failed',
-                                    style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
-                                  ),
-                                  const Text(
-                                    'Using basic account info. Check your connection.',
-                                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => ref.read(profileControllerProvider.notifier).loadProfile(),
-                              child: const Text('Retry', style: TextStyle(color: Colors.orange)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                        if (profileState.profile?.headline != null && profileState.profile!.headline!.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            profileState.profile!.headline!,
-                            style: const TextStyle(color: Colors.white70, fontSize: 16),
-                          ),
-                        ],
-                        if (profileState.profile?.location != null && profileState.profile!.location!.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Icon(Icons.location_on, color: Colors.white54, size: 16),
-                              const SizedBox(width: 4),
-                              Text(
-                                profileState.profile!.location!,
-                                style: const TextStyle(color: Colors.white54, fontSize: 14),
-                              ),
-                            ],
-                          ),
-                        ],
-                        if (profileState.profile?.skills != null && profileState.profile!.skills.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Skills',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: profileState.profile!.skills.map((skill) {
-                              return Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2972FF).withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: const Color(0xFF2972FF).withValues(alpha: 0.5)),
-                                ),
-                                child: Text(
-                                  skill,
-                                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        const Text(
-                          'Previous Interviews',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                        const SizedBox(height: 16),
-                        _InterviewHistoryCard(
-                          title: 'Product Manager',
-                          date: 'Oct 26, 2024',
-                          score: 78,
-                          onViewFeedback: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const FeedbackScreen(),
-                              ),
-                            );
-                          },
-                        ),
-                        _InterviewHistoryCard(
-                          title: 'Software Engineer',
-                          date: 'Oct 20, 2024',
-                          score: 85,
-                          onViewFeedback: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const FeedbackScreen(),
-                              ),
-                            );
-                          },
-                        ),
-                        _InterviewHistoryCard(
-                          title: 'UX Designer',
-                          date: 'Oct 15, 2024',
-                          score: 67,
-                          onViewFeedback: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const FeedbackScreen(),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 32),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2972FF),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => const EditProfileScreen(),
-                                ),
-                              );
-                            },
-                            child: const Text('Edit Profile', style: TextStyle(fontSize: 16)),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
-                  ),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: const Color(0xFF181A20),
-        selectedItemColor: Colors.white,
-        unselectedItemColor: Colors.white54,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
-        currentIndex: 1,
-        onTap: (index) {
-          if (index == 0) {
-            Navigator.of(context).pop();
-          }
-        },
+      body: _buildBody(profileState),
+    );
+  }
+
+  Widget _buildBody(ProfileState profileState) {
+    if (profileState.isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Loading profile...'),
+          ],
+        ),
+      );
+    }
+
+    if (profileState.error != null) {
+      return _buildErrorState(profileState.error!);
+    }
+
+    if (profileState.profile == null) {
+      return _buildEmptyState();
+    }
+
+    return _isEditMode
+        ? _buildEditMode(profileState.profile!)
+        : _buildViewMode(profileState.profile!);
+  }
+
+  Widget _buildErrorState(String error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 64),
+            const SizedBox(height: 16),
+            Text(
+              'Failed to load profile',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () =>
+                  ref.read(profileControllerProvider.notifier).loadProfile(),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
     );
   }
-}
 
-class _InterviewHistoryCard extends StatelessWidget {
-  final String title;
-  final String date;
-  final int score;
-  final VoidCallback onViewFeedback;
-
-  const _InterviewHistoryCard({
-    required this.title,
-    required this.date,
-    required this.score,
-    required this.onViewFeedback,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF23262A),
-        borderRadius: BorderRadius.circular(8),
+  Widget _buildEmptyState() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.person_outline, color: Colors.grey, size: 80),
+            SizedBox(height: 16),
+            Text(
+              'No profile data available',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Please refresh or contact support if this persists.',
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildViewMode(UserProfile profile) {
+    return RefreshIndicator(
+      onRefresh: () async {
+        await ref.read(profileControllerProvider.notifier).loadProfile();
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            // Profile Header Card
+            _buildProfileHeader(profile),
+
+            const SizedBox(height: 16),
+
+            // Profile Details Card
+            _buildProfileDetails(profile),
+
+            const SizedBox(height: 16),
+
+            // Skills Card
+            _buildSkillsCard(profile),
+
+            const SizedBox(height: 16),
+
+            // Account Information Card
+            _buildAccountInfo(profile),
+
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditMode(UserProfile profile) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          children: [
+            // Edit Profile Header
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundColor: Colors.blue,
+                      child: Text(
+                        profile.displayName.substring(0, 1).toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Edit Profile',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Edit Form
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Name Field
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Full Name',
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your name';
+                        }
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Headline Field
+                    TextFormField(
+                      controller: _headlineController,
+                      decoration: const InputDecoration(
+                        labelText: 'Professional Headline',
+                        prefixIcon: Icon(Icons.work),
+                      ),
+                      maxLines: 2,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your headline';
+                        }
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Location Field
+                    TextFormField(
+                      controller: _locationController,
+                      decoration: const InputDecoration(
+                        labelText: 'Location',
+                        prefixIcon: Icon(Icons.location_on),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your location';
+                        }
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Skills Field
+                    TextFormField(
+                      controller: _skillsController,
+                      decoration: const InputDecoration(
+                        labelText: 'Skills (comma-separated)',
+                        prefixIcon: Icon(Icons.star),
+                        hintText: 'e.g., Flutter, Dart, Firebase',
+                      ),
+                      maxLines: 3,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your skills';
+                        }
+                        return null;
+                      },
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Action Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: _cancelEdit,
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _saveProfile,
+                            child: const Text('Save'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileHeader(UserProfile profile) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            CircleAvatar(
+              radius: 50,
+              backgroundColor: Colors.blue,
+              child: Text(
+                profile.displayName.substring(0, 1).toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              profile.displayName,
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              profile.headline,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileDetails(UserProfile profile) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Profile Details',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _buildDetailRow(Icons.location_on, 'Location', profile.location),
+            _buildDetailRow(Icons.email, 'Email', profile.email),
+            _buildDetailRow(
+              Icons.calendar_today,
+              'Member since',
+              _formatDate(profile.createdAt),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkillsCard(UserProfile profile) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Skills',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: profile.skills
+                  .map(
+                    (skill) => Chip(
+                      label: Text(skill),
+                      backgroundColor: Colors.blue.withOpacity(0.2),
+                      labelStyle: const TextStyle(color: Colors.blue),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAccountInfo(UserProfile profile) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Account Information',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _buildDetailRow(Icons.fingerprint, 'User ID', profile.uid),
+            _buildDetailRow(
+              Icons.update,
+              'Last updated',
+              _formatDate(profile.updatedAt),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
       child: Row(
         children: [
+          Icon(icon, color: Colors.grey, size: 20),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+                  label,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.grey),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  date,
-                  style: const TextStyle(color: Colors.white54, fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Text('Overall Score: ', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                    Text('$score/100', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 15)),
-                  ],
-                ),
+                const SizedBox(height: 2),
+                Text(value, style: Theme.of(context).textTheme.bodyMedium),
               ],
             ),
-          ),
-          const SizedBox(width: 12),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2972FF),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: onViewFeedback,
-            child: const Text('View Feedback', style: TextStyle(fontSize: 14)),
           ),
         ],
       ),
     );
+  }
+
+  void _startEdit(UserProfile profile) {
+    setState(() {
+      _isEditMode = true;
+    });
+
+    // Populate form fields
+    _nameController.text = profile.displayName;
+    _headlineController.text = profile.headline;
+    _locationController.text = profile.location;
+    _skillsController.text = profile.skills.join(', ');
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _isEditMode = false;
+    });
+
+    // Clear form fields
+    _nameController.clear();
+    _headlineController.clear();
+    _locationController.clear();
+    _skillsController.clear();
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      final skills = _skillsController.text
+          .split(',')
+          .map((skill) => skill.trim())
+          .where((skill) => skill.isNotEmpty)
+          .toList();
+
+      await ref
+          .read(profileControllerProvider.notifier)
+          .updateProfile(
+            displayName: _nameController.text.trim(),
+            headline: _headlineController.text.trim(),
+            location: _locationController.text.trim(),
+            skills: skills,
+          );
+
+      if (mounted) {
+        setState(() {
+          _isEditMode = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update profile: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _authService.signOut();
+            },
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return dateString;
+    }
   }
 }

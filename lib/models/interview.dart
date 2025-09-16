@@ -1,4 +1,6 @@
 // Interview data model
+import '../services/api_service.dart' show InterviewQuestion;
+
 class Interview {
   final String id;
   final String jobTitle;
@@ -9,6 +11,12 @@ class Interview {
   final String? userId;
   final DateTime createdAt;
   final DateTime updatedAt;
+  
+  // Interview configuration fields
+  final String? role;               // Job role for backward compatibility
+  final String? type;               // Interview type (technical, behavioral, etc.)
+  final String? level;              // Experience level (junior, mid, senior)
+  final List<InterviewQuestion>? questions; // Interview questions
   
   // AI-specific fields
   final String? aiSessionId;        // Vapi session ID
@@ -28,6 +36,10 @@ class Interview {
     this.userId,
     required this.createdAt,
     required this.updatedAt,
+    this.role,
+    this.type,
+    this.level,
+    this.questions,
     this.aiSessionId,
     this.audioRecordingUrl,
     this.transcriptUrl,
@@ -50,6 +62,12 @@ class Interview {
       userId: json['userId'],
       createdAt: DateTime.parse(json['createdAt']),
       updatedAt: DateTime.parse(json['updatedAt']),
+      role: json['role'] ?? json['jobTitle'], // Use jobTitle as fallback for role
+      type: json['type'],
+      level: json['level'],
+      questions: json['questions'] != null 
+          ? (json['questions'] as List).map((q) => InterviewQuestion.fromJson(q)).toList()
+          : null,
       aiSessionId: json['aiSessionId'],
       audioRecordingUrl: json['audioRecordingUrl'],
       transcriptUrl: json['transcriptUrl'],
@@ -70,6 +88,10 @@ class Interview {
       'userId': userId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'role': role,
+      'type': type,
+      'level': level,
+      'questions': questions?.map((q) => q.toJson()).toList(),
       'aiSessionId': aiSessionId,
       'audioRecordingUrl': audioRecordingUrl,
       'transcriptUrl': transcriptUrl,
@@ -89,6 +111,10 @@ class Interview {
     String? userId,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? role,
+    String? type,
+    String? level,
+    List<InterviewQuestion>? questions,
     String? aiSessionId,        // NEW: AI-specific fields
     String? audioRecordingUrl,
     String? transcriptUrl,
@@ -106,6 +132,10 @@ class Interview {
       userId: userId ?? this.userId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      role: role ?? this.role,
+      type: type ?? this.type,
+      level: level ?? this.level,
+      questions: questions ?? this.questions,
       aiSessionId: aiSessionId ?? this.aiSessionId,
       audioRecordingUrl: audioRecordingUrl ?? this.audioRecordingUrl,
       transcriptUrl: transcriptUrl ?? this.transcriptUrl,

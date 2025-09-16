@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'new_interview_screen.dart';
-import 'profile_screen.dart';
-import 'interview_screen.dart';
+import '../services/auth_service.dart';
 import '../state/interview_controller.dart';
+import '../state/profile_controller.dart';
 import '../models/interview.dart';
+import 'interview_screen.dart';
+import 'profile_screen.dart';
+import 'interview_detail_screen.dart';
 
+/// HomeScreen serves as the main dashboard for authenticated users
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -14,440 +17,458 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  int _currentIndex = 0;
+  final _authService = AuthService();
+
   @override
   void initState() {
     super.initState();
-    // Load interviews when the screen initializes
+    // Load initial data when the screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(interviewControllerProvider.notifier).loadInterviews();
+      ref.read(profileControllerProvider.notifier).loadProfile();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final interviewState = ref.watch(interviewControllerProvider);
-    final interviews = interviewState.interviews;
-    final isLoading = interviewState.isLoading;
-    final error = interviewState.error;
+    final List<Widget> pages = [
+      _buildHomeView(),
+      const InterviewScreen(),
+      const ProfileScreen(),
+    ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFF181A20),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF181A20),
-        elevation: 0,
-        title: const Text('EchoHire', style: TextStyle(color: Colors.white)),
+      body: IndexedStack(index: _currentIndex, children: pages),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) => setState(() => _currentIndex = index),
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.work_outline),
+            activeIcon: Icon(Icons.work),
+            label: 'Interviews',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: const Color(0xFF1E1E1E),
+        selectedItemColor: Colors.blue,
+        unselectedItemColor: Colors.grey,
       ),
-      body: Padding(
+    );
+  }
+
+  Widget _buildHomeView() {
+    final profileState = ref.watch(profileControllerProvider);
+    final interviewState = ref.watch(interviewControllerProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Welcome${profileState.profile?.displayName != null ? ', ${profileState.profile!.displayName.split(' ').first}' : ''}',
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => _showLogoutDialog(),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await ref.read(interviewControllerProvider.notifier).loadInterviews();
+          await ref.read(profileControllerProvider.notifier).loadProfile();
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Welcome Card
+              _buildWelcomeCard(profileState.profile),
+
+              const SizedBox(height: 24),
+
+              // Quick Stats
+              _buildQuickStats(interviewState.interviews),
+
+              const SizedBox(height: 24),
+
+              // Recent Interviews Section
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Recent Interviews',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _currentIndex = 1),
+                    child: const Text('View All'),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Interview List
+              _buildRecentInterviews(interviewState),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWelcomeCard(dynamic profile) {
+    return Card(
+      child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Hello, Alex!',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 24),
-            
-            // Quick action buttons
             Row(
               children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const InterviewScreen()),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2972FF),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.blue,
+                  child: Text(
+                    profile?.displayName?.substring(0, 1).toUpperCase() ?? 'U',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
-                    icon: const Icon(Icons.quiz),
-                    label: const Text('My Interviews'),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const NewInterviewScreen()),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1F222A),
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0xFF2972FF)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('New Interview'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        profile?.displayName ?? 'User',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      if (profile?.headline != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          profile!.headline,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            
-            const Text(
-              'Recent Interviews',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
             const SizedBox(height: 16),
-            // Interview list
-            Expanded(
-              child: _buildInterviewList(interviews, isLoading, error),
+            Text(
+              'Ready to practice your next interview? Start by creating a new interview session or review your previous performance.',
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => const NewInterviewScreen()),
-          );
-        },
-        backgroundColor: const Color(0xFF2972FF),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: const Color(0xFF181A20),
-        selectedItemColor: Colors.white,
-        unselectedItemColor: Colors.white54,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.quiz),
-            label: 'Interviews',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
-        onTap: (index) {
-          if (index == 1) {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const InterviewScreen()),
-            );
-          } else if (index == 2) {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const ProfileScreen()),
-            );
-          }
-        },
       ),
     );
   }
 
-  Widget _buildInterviewList(List<Interview> interviews, bool isLoading, String? error) {
-    if (isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2972FF)),
-        ),
-      );
-    }
+  Widget _buildQuickStats(List<Interview> interviews) {
+    final completedCount = interviews
+        .where((i) => i.status == InterviewStatus.completed)
+        .length;
+    final pendingCount = interviews
+        .where((i) => i.status == InterviewStatus.pending)
+        .length;
+    final totalCount = interviews.length;
 
-    if (error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              color: Colors.red,
-              size: 48,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Error loading interviews',
-              style: TextStyle(color: Colors.white, fontSize: 18),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              error,
-              style: TextStyle(color: Colors.grey, fontSize: 14),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                ref.read(interviewControllerProvider.notifier).loadInterviews();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2972FF),
-              ),
-              child: const Text('Retry', style: TextStyle(color: Colors.white)),
-            ),
-          ],
+    return Row(
+      children: [
+        Expanded(
+          child: _buildStatCard(
+            'Total Interviews',
+            totalCount.toString(),
+            Icons.work_outline,
+            Colors.blue,
+          ),
         ),
-      );
-    }
-
-    if (interviews.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.assignment_outlined,
-              color: Colors.grey,
-              size: 64,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'No interviews yet',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Tap the + button to schedule your first interview',
-              style: TextStyle(color: Colors.grey, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-          ],
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildStatCard(
+            'Completed',
+            completedCount.toString(),
+            Icons.check_circle_outline,
+            Colors.green,
+          ),
         ),
-      );
-    }
-
-    return ListView.builder(
-      itemCount: interviews.length,
-      itemBuilder: (context, index) {
-        final interview = interviews[index];
-        return _InterviewCard(
-          interview: interview,
-          onTap: () {
-            // Navigate to interview details
-            _showInterviewDetails(context, interview);
-          },
-        );
-      },
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildStatCard(
+            'Pending',
+            pendingCount.toString(),
+            Icons.pending_outlined,
+            Colors.orange,
+          ),
+        ),
+      ],
     );
   }
 
-  void _showInterviewDetails(BuildContext context, Interview interview) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF181A20),
-        title: Text(
-          interview.jobTitle,
-          style: const TextStyle(color: Colors.white),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
           children: [
-            Text(
-              'Company: ${interview.companyName ?? 'N/A'}',
-              style: const TextStyle(color: Colors.grey),
-            ),
+            Icon(icon, color: color, size: 32),
             const SizedBox(height: 8),
             Text(
-              'Date: ${_formatDate(interview.interviewDate)}',
-              style: const TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Status: ${interview.status.toString().split('.').last}',
-              style: TextStyle(
-                color: _getStatusColor(interview.status),
-                fontWeight: FontWeight.w600,
+              value,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
               ),
             ),
-            if (interview.overallScore != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentInterviews(InterviewState interviewState) {
+    if (interviewState.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (interviewState.error != null) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 48),
               const SizedBox(height: 8),
               Text(
-                'Score: ${interview.overallScore!.toStringAsFixed(1)}/100',
-                style: const TextStyle(color: Colors.white),
+                'Failed to load interviews',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                interviewState.error!,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => ref
+                    .read(interviewControllerProvider.notifier)
+                    .loadInterviews(),
+                child: const Text('Retry'),
               ),
             ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'Close',
-              style: TextStyle(color: Color(0xFF2972FF)),
-            ),
           ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
-  }
-
-  Color _getStatusColor(InterviewStatus status) {
-    switch (status) {
-      case InterviewStatus.pending:
-        return Colors.orange;
-      case InterviewStatus.scheduled:
-        return const Color(0xFF2972FF);
-      case InterviewStatus.completed:
-        return Colors.green;
-      case InterviewStatus.cancelled:
-        return Colors.red;
-    }
-  }
-}
-
-class _InterviewCard extends StatelessWidget {
-  final Interview interview;
-  final VoidCallback? onTap;
-
-  const _InterviewCard({
-    required this.interview,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF262A34),
-          borderRadius: BorderRadius.circular(12),
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: _getCardColor(interview.status),
-                borderRadius: BorderRadius.circular(8),
+      );
+    }
+
+    if (interviewState.interviews.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            children: [
+              const Icon(Icons.work_outline, color: Colors.grey, size: 64),
+              const SizedBox(height: 16),
+              Text(
+                'No interviews yet',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-              child: Icon(
-                _getCardIcon(interview.status),
-                color: const Color(0xFF181A20),
-                size: 24,
+              const SizedBox(height: 8),
+              Text(
+                'Create your first interview to get started with AI practice sessions.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                textAlign: TextAlign.center,
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    interview.jobTitle,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    interview.companyName ?? 'Company',
-                    style: const TextStyle(
-                      color: Colors.grey,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatDate(interview.interviewDate),
-                    style: const TextStyle(
-                      color: Colors.grey,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => setState(() => _currentIndex = 1),
+                child: const Text('Create Interview'),
               ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _getStatusColor(interview.status).withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                interview.status.toString().split('.').last,
-                style: TextStyle(
-                  color: _getStatusColor(interview.status),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Show recent interviews (max 5)
+    final recentInterviews = interviewState.interviews.take(5).toList();
+
+    return Column(
+      children: recentInterviews
+          .map(
+            (interview) => _InterviewCard(
+              interview: interview,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      InterviewDetailScreen(interview: interview),
                 ),
               ),
             ),
+          )
+          .toList(),
+    );
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _authService.signOut();
+            },
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Reusable interview card widget
+class _InterviewCard extends StatelessWidget {
+  final Interview interview;
+  final VoidCallback onTap;
+
+  const _InterviewCard({required this.interview, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12.0),
+      child: ListTile(
+        onTap: onTap,
+        leading: CircleAvatar(
+          backgroundColor: _getStatusColor(interview.status).withOpacity(0.2),
+          child: Icon(
+            _getStatusIcon(interview.status),
+            color: _getStatusColor(interview.status),
+          ),
+        ),
+        title: Text(
+          interview.jobTitle,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (interview.companyName != null) ...[
+              Text(interview.companyName!),
+              const SizedBox(height: 4),
+            ],
+            Row(
+              children: [
+                Chip(
+                  label: Text(
+                    interview.status.toString().split('.').last.toUpperCase(),
+                    style: const TextStyle(fontSize: 10),
+                  ),
+                  backgroundColor: _getStatusColor(
+                    interview.status,
+                  ).withOpacity(0.2),
+                  labelStyle: TextStyle(
+                    color: _getStatusColor(interview.status),
+                  ),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                const Spacer(),
+                Text(
+                  '${interview.interviewDate.day}/${interview.interviewDate.month}/${interview.interviewDate.year}',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                ),
+              ],
+            ),
           ],
         ),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
       ),
     );
   }
 
-  Color _getCardColor(InterviewStatus status) {
-    switch (status) {
-      case InterviewStatus.pending:
-        return const Color(0xFFF5EEDC);
-      case InterviewStatus.scheduled:
-        return const Color(0xFFE3F2FD);
-      case InterviewStatus.completed:
-        return const Color(0xFFE8F5E8);
-      case InterviewStatus.cancelled:
-        return const Color(0xFFFFEBEE);
-    }
-  }
-
-  IconData _getCardIcon(InterviewStatus status) {
-    switch (status) {
-      case InterviewStatus.pending:
-        return Icons.schedule;
-      case InterviewStatus.scheduled:
-        return Icons.event;
-      case InterviewStatus.completed:
-        return Icons.check_circle;
-      case InterviewStatus.cancelled:
-        return Icons.cancel;
-    }
-  }
-
   Color _getStatusColor(InterviewStatus status) {
     switch (status) {
-      case InterviewStatus.pending:
-        return Colors.orange;
-      case InterviewStatus.scheduled:
-        return const Color(0xFF2972FF);
       case InterviewStatus.completed:
         return Colors.green;
+      case InterviewStatus.inProgress:
+        return Colors.blue;
+      case InterviewStatus.scheduled:
+        return Colors.orange;
       case InterviewStatus.cancelled:
         return Colors.red;
+      case InterviewStatus.pending:
+      default:
+        return Colors.grey;
     }
   }
 
-  String _formatDate(DateTime date) {
-    final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  IconData _getStatusIcon(InterviewStatus status) {
+    switch (status) {
+      case InterviewStatus.completed:
+        return Icons.check_circle;
+      case InterviewStatus.inProgress:
+        return Icons.play_circle;
+      case InterviewStatus.scheduled:
+        return Icons.schedule;
+      case InterviewStatus.cancelled:
+        return Icons.cancel;
+      case InterviewStatus.pending:
+      default:
+        return Icons.pending;
+    }
   }
 }

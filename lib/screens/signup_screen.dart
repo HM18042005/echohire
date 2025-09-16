@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
 import '../state/profile_controller.dart';
 
+/// SignUpScreen handles new user registration and profile creation
 class SignUpScreen extends ConsumerStatefulWidget {
   const SignUpScreen({super.key});
 
@@ -11,23 +12,27 @@ class SignUpScreen extends ConsumerStatefulWidget {
 }
 
 class _SignUpScreenState extends ConsumerState<SignUpScreen> {
-  final _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _displayNameController = TextEditingController();
+  final _fullNameController = TextEditingController();
   final _headlineController = TextEditingController();
   final _locationController = TextEditingController();
   final _skillsController = TextEditingController();
+
+  final _authService = AuthService();
+
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
-    _displayNameController.dispose();
+    _fullNameController.dispose();
     _headlineController.dispose();
     _locationController.dispose();
     _skillsController.dispose();
@@ -37,324 +42,311 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      // Create Firebase user account
+      // Create user with Firebase Auth
       final userCredential = await _authService.createUserWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text,
       );
-      
+
       // Parse skills from comma-separated string
-      final skillsText = _skillsController.text.trim();
-      final skills = skillsText.isNotEmpty 
-          ? skillsText.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
-          : <String>[];
-      
-      // Save additional profile data using ProfileController
-      await ref.read(profileControllerProvider.notifier).updateProfile(
-        displayName: _displayNameController.text.trim(),
-        headline: _headlineController.text.trim().isNotEmpty ? _headlineController.text.trim() : null,
-        location: _locationController.text.trim().isNotEmpty ? _locationController.text.trim() : null,
-        skills: skills.isNotEmpty ? skills : null,
+      final skillsList = _skillsController.text
+          .split(',')
+          .map((skill) => skill.trim())
+          .where((skill) => skill.isNotEmpty)
+          .toList();
+
+      // Update profile with additional details using ProfileController
+      final profileController = ref.read(profileControllerProvider.notifier);
+      await profileController.updateProfile(
+        displayName: _fullNameController.text.trim(),
+        headline: _headlineController.text.trim(),
+        location: _locationController.text.trim(),
+        skills: skillsList,
       );
-      
-      // Check for any profile update errors
-      final profileState = ref.read(profileControllerProvider);
-      if (profileState.error != null) {
-        throw Exception('Failed to save profile: ${profileState.error}');
-      }
-      
-      // Show success message and navigate
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Account created successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        // Navigate to home screen or wherever appropriate
-        Navigator.of(context).pushReplacementNamed('/home');
-      }
-      
+
+      // Navigation is handled by AuthWrapper in main.dart
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sign up failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showErrorSnackBar(e.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
-    if (mounted) {
-      setState(() => _isLoading = false);
-    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF181A20),
+      appBar: AppBar(
+        title: const Text('Create Account'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          child: Center(
-            child: Container(
-              width: 350,
-              margin: const EdgeInsets.symmetric(vertical: 32),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-              decoration: BoxDecoration(
-                color: const Color(0xFF23262A),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Center(
-                      child: Text(
-                        'EchoHire',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
+          padding: const EdgeInsets.all(24.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 16),
+
+                Text(
+                  'Join EchoHire',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  'Create your profile to get started',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+
+                const SizedBox(height: 32),
+
+                // Full Name Field
+                TextFormField(
+                  controller: _fullNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name',
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your full name';
+                    }
+                    if (value.length < 2) {
+                      return 'Name must be at least 2 characters';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Email Field
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your email';
+                    }
+                    if (!RegExp(
+                      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                    ).hasMatch(value)) {
+                      return 'Please enter a valid email';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Password Field
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    
-                    // Full Name
-                    const Text('Full Name', style: TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _displayNameController,
-                      decoration: InputDecoration(
-                        hintText: 'Enter your full name',
-                        filled: true,
-                        fillColor: const Color(0xFF181A20),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.white54),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Full name is required';
-                        }
-                        if (value.trim().length > 80) {
-                          return 'Name must be 80 characters or less';
-                        }
-                        return null;
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
                       },
                     ),
-                    const SizedBox(height: 16),
-                    
-                    // Email
-                    const Text('Email', style: TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _emailController,
-                      decoration: InputDecoration(
-                        hintText: 'Enter your email',
-                        filled: true,
-                        fillColor: const Color(0xFF181A20),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.white54),
+                  ),
+                  obscureText: _obscurePassword,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter a password';
+                    }
+                    if (value.length < 6) {
+                      return 'Password must be at least 6 characters';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Confirm Password Field
+                TextFormField(
+                  controller: _confirmPasswordController,
+                  decoration: InputDecoration(
+                    labelText: 'Confirm Password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscureConfirmPassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                       ),
-                      style: const TextStyle(color: Colors.white),
-                      keyboardType: TextInputType.emailAddress,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Email is required';
-                        }
-                        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                          return 'Enter a valid email';
-                        }
-                        return null;
+                      onPressed: () {
+                        setState(() {
+                          _obscureConfirmPassword = !_obscureConfirmPassword;
+                        });
                       },
                     ),
-                    const SizedBox(height: 16),
-                    
-                    // Password
-                    const Text('Password', style: TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        hintText: 'Enter your password',
-                        filled: true,
-                        fillColor: const Color(0xFF181A20),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.white54),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      obscureText: true,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Password is required';
-                        }
-                        if (value.length < 6) {
-                          return 'Password must be at least 6 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Confirm Password
-                    const Text('Confirm Password', style: TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _confirmPasswordController,
-                      decoration: InputDecoration(
-                        hintText: 'Confirm your password',
-                        filled: true,
-                        fillColor: const Color(0xFF181A20),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.white54),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      obscureText: true,
-                      validator: (value) {
-                        if (value != _passwordController.text) {
-                          return 'Passwords do not match';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Headline (optional)
-                    const Text('Headline (optional)', style: TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _headlineController,
-                      decoration: InputDecoration(
-                        hintText: 'e.g., Software Developer',
-                        filled: true,
-                        fillColor: const Color(0xFF181A20),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.white54),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      validator: (value) {
-                        if (value != null && value.length > 140) {
-                          return 'Headline must be 140 characters or less';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Location (optional)
-                    const Text('Location (optional)', style: TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _locationController,
-                      decoration: InputDecoration(
-                        hintText: 'e.g., San Francisco, CA',
-                        filled: true,
-                        fillColor: const Color(0xFF181A20),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.white54),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      validator: (value) {
-                        if (value != null && value.length > 100) {
-                          return 'Location must be 100 characters or less';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Skills (optional)
-                    const Text('Skills (optional)', style: TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _skillsController,
-                      decoration: InputDecoration(
-                        hintText: 'e.g., Flutter, Dart, JavaScript',
-                        filled: true,
-                        fillColor: const Color(0xFF181A20),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                        hintStyle: const TextStyle(color: Colors.white54),
-                        helperText: 'Separate skills with commas',
-                        helperStyle: const TextStyle(color: Colors.white38),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      maxLines: 2,
-                      validator: (value) {
-                        if (value != null && value.isNotEmpty) {
-                          final skills = value.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-                          if (skills.length > 50) {
-                            return 'Maximum 50 skills allowed';
-                          }
-                          for (final skill in skills) {
-                            if (skill.length > 40) {
-                              return 'Each skill must be 40 characters or less';
-                            }
-                          }
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    
-                    // Sign Up Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2972FF),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                  ),
+                  obscureText: _obscureConfirmPassword,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please confirm your password';
+                    }
+                    if (value != _passwordController.text) {
+                      return 'Passwords do not match';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Headline Field
+                TextFormField(
+                  controller: _headlineController,
+                  decoration: const InputDecoration(
+                    labelText: 'Professional Headline',
+                    prefixIcon: Icon(Icons.work_outline),
+                    hintText: 'e.g., Flutter Developer at Google',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your professional headline';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Location Field
+                TextFormField(
+                  controller: _locationController,
+                  decoration: const InputDecoration(
+                    labelText: 'Location',
+                    prefixIcon: Icon(Icons.location_on_outlined),
+                    hintText: 'e.g., San Francisco, CA',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your location';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Skills Field
+                TextFormField(
+                  controller: _skillsController,
+                  decoration: const InputDecoration(
+                    labelText: 'Skills',
+                    prefixIcon: Icon(Icons.star_outline),
+                    hintText:
+                        'e.g., Flutter, Dart, Firebase, UI/UX (comma-separated)',
+                  ),
+                  maxLines: 2,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter your skills';
+                    }
+                    final skills = value
+                        .split(',')
+                        .map((skill) => skill.trim())
+                        .where((skill) => skill.isNotEmpty);
+                    if (skills.length < 2) {
+                      return 'Please enter at least 2 skills';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 32),
+
+                // Sign Up Button
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _signUp,
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Text('Create Account'),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Back to Login Link
+                TextButton(
+                  onPressed: _isLoading ? null : () => Navigator.pop(context),
+                  child: RichText(
+                    text: const TextSpan(
+                      text: 'Already have an account? ',
+                      style: TextStyle(color: Colors.grey),
+                      children: [
+                        TextSpan(
+                          text: 'Sign In',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        onPressed: _isLoading ? null : _signUp,
-                        child: _isLoading
-                            ? const CircularProgressIndicator(color: Colors.white)
-                            : const Text('Sign Up', style: TextStyle(fontSize: 16)),
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    
-                    // Already have account link
-                    Center(
-                      child: GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: const Text(
-                          "Already have an account? Log In",
-                          style: TextStyle(color: Colors.white54, decoration: TextDecoration.underline),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+
+                const SizedBox(height: 32),
+              ],
             ),
           ),
         ),

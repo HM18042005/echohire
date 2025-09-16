@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../services/api_client.dart';
+import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../models/interview.dart';
 
 class InterviewState {
@@ -27,7 +28,7 @@ class InterviewState {
 }
 
 class InterviewController extends StateNotifier<InterviewState> {
-  final ApiClient _apiClient = ApiClient();
+  final AuthService _authService = AuthService();
 
   InterviewController() : super(InterviewState());
 
@@ -35,20 +36,75 @@ class InterviewController extends StateNotifier<InterviewState> {
     state = state.copyWith(isLoading: true, error: null);
     
     try {
-      final interviewsData = await _apiClient.getUserInterviews();
-      final interviews = interviewsData
-          .map((data) => Interview.fromJson(data))
-          .toList();
+      // Get current user ID
+      final currentUser = _authService.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+      
+      // Add a timeout to prevent infinite loading
+      final interviewSessions = await ApiServiceSingleton.instance.getUserInterviews(
+        userId: currentUser.uid,
+      ).timeout(const Duration(seconds: 10));
+      
+      // Convert InterviewSession to Interview
+      final interviews = interviewSessions.map((session) => Interview(
+        id: session.id,
+        jobTitle: session.role,
+        companyName: null,
+        interviewDate: DateTime.now(), // Placeholder
+        status: InterviewStatus.pending,
+        userId: session.userId,
+        createdAt: DateTime.parse(session.createdAt),
+        updatedAt: DateTime.parse(session.createdAt),
+        role: session.role,
+        type: session.type,
+        level: session.level,
+        questions: session.questions,
+      )).toList();
       
       state = state.copyWith(
         interviews: interviews,
         isLoading: false,
       );
     } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        error: e.toString(),
-      );
+      print('Error loading interviews: $e');
+      
+      // If it's a timeout or connection error, provide fallback data
+      if (e.toString().contains('TimeoutException') || 
+          e.toString().contains('SocketException') ||
+          e.toString().contains('connection') ||
+          e.toString().contains('Failed to fetch interviews')) {
+        print('Connection issue detected, using fallback data');
+        
+        // Provide some mock data for development
+        final mockInterviews = [
+          Interview(
+            id: 'mock-1',
+            jobTitle: 'Flutter Developer',
+            companyName: 'Tech Corp',
+            interviewDate: DateTime.now().add(const Duration(days: 1)),
+            status: InterviewStatus.scheduled,
+            userId: 'user123',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            role: 'Flutter Developer',
+            type: 'Technical',
+            level: 'Mid-level',
+          ),
+        ];
+        
+        state = state.copyWith(
+          interviews: mockInterviews,
+          isLoading: false,
+          error: 'Using offline mode - ${e.toString()}',
+        );
+      } else {
+        state = state.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        );
+      }
     }
   }
 
@@ -66,7 +122,7 @@ class InterviewController extends StateNotifier<InterviewState> {
         'status': status.toString().split('.').last,
       };
 
-      final response = await _apiClient.createInterview(interviewData);
+      final response = await ApiServiceSingleton.instance.createInterview(interviewData);
       final newInterview = Interview.fromJson(response);
 
       // Add to local state
@@ -83,7 +139,7 @@ class InterviewController extends StateNotifier<InterviewState> {
 
   Future<Interview?> getInterview(String interviewId) async {
     try {
-      final response = await _apiClient.getInterview(interviewId);
+      final response = await ApiServiceSingleton.instance.getInterview(interviewId);
       return Interview.fromJson(response);
     } catch (e) {
       state = state.copyWith(error: e.toString());

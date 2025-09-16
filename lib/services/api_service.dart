@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'auth_service.dart';
 
 // Data Models
 
@@ -154,6 +155,18 @@ class ApiService {
     };
   }
 
+  /// Get headers with Firebase authentication token
+  Future<Map<String, String>> _getAuthHeaders() async {
+    final authService = AuthService();
+    final token = await authService.getIdToken();
+    
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
   /// Handles HTTP response and throws appropriate exceptions for errors
   void _handleResponse(http.Response response, String operation) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -219,7 +232,7 @@ class ApiService {
 
       final response = await _client.post(
         url,
-        headers: _getHeaders(),
+        headers: await _getAuthHeaders(),
         body: json.encode(requestBody),
       ).timeout(
         const Duration(seconds: 30),
@@ -256,10 +269,11 @@ class ApiService {
   }) async {
     try {
       final url = Uri.parse('$_baseUrl/api/interviews/$userId');
+      final headers = await _getAuthHeaders();
 
       final response = await _client.get(
         url,
-        headers: _getHeaders(),
+        headers: headers,
       ).timeout(
         const Duration(seconds: 15),
         onTimeout: () => throw NetworkException('Request timeout'),
@@ -314,12 +328,12 @@ class ApiService {
 
   /// Start an AI-conducted interview session
   Future<Map<String, dynamic>> startAIInterview(String interviewId, {String? phoneNumber}) async {
-    final url = Uri.parse('$baseUrl/interviews/$interviewId/start-ai');
+    final url = Uri.parse('$_baseUrl/interviews/$interviewId/start-ai');
     
     try {
       final response = await _client.post(
         url,
-        headers: _getHeaders(),
+        headers: await _getAuthHeaders(),
         body: jsonEncode({
           'interviewId': interviewId,
           if (phoneNumber != null) 'candidatePhoneNumber': phoneNumber,
@@ -344,7 +358,7 @@ class ApiService {
 
   /// Get the status of an AI interview session
   Future<Map<String, dynamic>> getAIInterviewStatus(String interviewId) async {
-    final url = Uri.parse('$baseUrl/interviews/$interviewId/ai-status');
+    final url = Uri.parse('$_baseUrl/interviews/$interviewId/ai-status');
     
     try {
       final response = await _client.get(
@@ -370,7 +384,7 @@ class ApiService {
 
   /// Get AI-generated feedback for a completed interview
   Future<Map<String, dynamic>> getAIFeedback(String interviewId) async {
-    final url = Uri.parse('$baseUrl/interviews/$interviewId/ai-feedback');
+    final url = Uri.parse('$_baseUrl/interviews/$interviewId/ai-feedback');
     
     try {
       final response = await _client.get(
@@ -396,12 +410,12 @@ class ApiService {
 
   /// Stop an ongoing AI interview session
   Future<bool> stopAIInterview(String interviewId) async {
-    final url = Uri.parse('$baseUrl/interviews/$interviewId/stop-ai');
+    final url = Uri.parse('$_baseUrl/interviews/$interviewId/stop-ai');
     
     try {
       final response = await _client.post(
         url,
-        headers: _getHeaders(),
+        headers: await _getAuthHeaders(),
         body: jsonEncode({}),
       ).timeout(
         const Duration(seconds: 10),
@@ -412,7 +426,53 @@ class ApiService {
       return false;
     }
   }
-}
+
+  /// Creates a new interview record
+  Future<Map<String, dynamic>> createInterview(Map<String, dynamic> interviewData) async {
+    try {
+      final url = Uri.parse('$_baseUrl/interviews');
+      
+      final response = await _client.post(
+        url,
+        headers: await _getAuthHeaders(),
+        body: json.encode(interviewData),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw Exception('Request timeout'),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to create interview: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to create interview: $e');
+    }
+  }
+
+  /// Gets a specific interview by ID
+  Future<Map<String, dynamic>> getInterview(String interviewId) async {
+    try {
+      final url = Uri.parse('$_baseUrl/interviews/$interviewId');
+      
+      final response = await _client.get(
+        url,
+        headers: await _getAuthHeaders(),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw Exception('Request timeout'),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to get interview: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to get interview: $e');
+    }
+  }
 }
 
 /// Singleton instance of ApiService for global access
