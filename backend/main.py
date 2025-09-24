@@ -36,12 +36,22 @@ try:
     # First, try to get service account from environment variable (for production)
     firebase_creds = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON')
     if firebase_creds:
-        import json
-        service_account_info = json.loads(firebase_creds)
+        import json, base64
+        raw = firebase_creds.strip()
+        try:
+            # Try plain JSON first
+            service_account_info = json.loads(raw)
+        except json.JSONDecodeError:
+            # If not JSON, try base64-decoded JSON
+            decoded = base64.b64decode(raw).decode('utf-8')
+            service_account_info = json.loads(decoded)
         if not firebase_admin._apps:
             cred = credentials.Certificate(service_account_info)
             firebase_admin.initialize_app(cred)
-        print("✅ Firebase initialized with environment variable credentials")
+        # Log non-sensitive identifiers to verify the correct key was loaded
+        key_id = service_account_info.get('private_key_id', '<unknown>')
+        email = service_account_info.get('client_email', '<unknown>')
+        print(f"✅ Firebase initialized with env credentials (key_id={key_id}, client_email={email})")
         db = firestore.client()
     # Then, try to use the service account file (for local development)
     elif os.path.exists("firebase-service-account.json"):
