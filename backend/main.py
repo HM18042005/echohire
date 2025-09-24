@@ -33,40 +33,40 @@ async def stop_vapi_call(call_id: str) -> bool:
 
 # Initialize Firebase Admin SDK
 try:
-    # First, try to get service account from environment variable (for production)
-    firebase_creds = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON')
+    import json, base64
+
+    # 1) Prefer environment variables in production
+    firebase_creds = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON') or os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON_BASE64')
+    used_env_name = 'FIREBASE_SERVICE_ACCOUNT_JSON' if os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON') else (
+        'FIREBASE_SERVICE_ACCOUNT_JSON_BASE64' if os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON_BASE64') else None
+    )
     if firebase_creds:
-        import json, base64
         raw = firebase_creds.strip()
         try:
             # Try plain JSON first
             service_account_info = json.loads(raw)
+            source_hint = f"env:{used_env_name} (json)"
         except json.JSONDecodeError:
             # If not JSON, try base64-decoded JSON
             decoded = base64.b64decode(raw).decode('utf-8')
             service_account_info = json.loads(decoded)
+            source_hint = f"env:{used_env_name} (base64)"
         if not firebase_admin._apps:
             cred = credentials.Certificate(service_account_info)
             firebase_admin.initialize_app(cred)
-        # Log non-sensitive identifiers to verify the correct key was loaded
         key_id = service_account_info.get('private_key_id', '<unknown>')
         email = service_account_info.get('client_email', '<unknown>')
-        print(f"✅ Firebase initialized with env credentials (key_id={key_id}, client_email={email})")
+        print(f"✅ Firebase initialized with env credentials [{source_hint}] (key_id={key_id}, client_email={email})")
         db = firestore.client()
-    # Then, try to use the service account file (for local development only)
-    elif os.path.exists("firebase-service-account.json"):
-        running_on_render = os.getenv("PORT") is not None
-        allow_file = os.getenv("ALLOW_FIREBASE_FILE", "0") == "1"
-        if running_on_render and not allow_file:
-            print("⛔ Detected Render environment (PORT set). Ignoring service account file. Set ALLOW_FIREBASE_FILE=1 to override.")
-            raise RuntimeError("Service account file not allowed in Render; use FIREBASE_SERVICE_ACCOUNT_JSON env var.")
+    # 2) Allow local file ONLY if explicitly enabled
+    elif os.getenv("ALLOW_FIREBASE_FILE", "0") == "1" and os.path.exists("firebase-service-account.json"):
         if not firebase_admin._apps:
             cred = credentials.Certificate("firebase-service-account.json")
             firebase_admin.initialize_app(cred)
-        print("✅ Firebase initialized with service account file")
+        print("✅ Firebase initialized with service account file (ALLOW_FIREBASE_FILE=1)")
         db = firestore.client()
     else:
-        print("⚠️  Service account file not found, trying Application Default Credentials...")
+        print("⚠️ No Firebase env credentials set and local file not allowed. Trying Application Default Credentials...")
         if not firebase_admin._apps:
             firebase_admin.initialize_app()
         print("✅ Firebase initialized with Application Default Credentials")
