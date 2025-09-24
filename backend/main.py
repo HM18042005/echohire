@@ -33,8 +33,18 @@ async def stop_vapi_call(call_id: str) -> bool:
 
 # Initialize Firebase Admin SDK
 try:
-    # First, try to use the service account file (most reliable for development)
-    if os.path.exists("firebase-service-account.json"):
+    # First, try to get service account from environment variable (for production)
+    firebase_creds = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON')
+    if firebase_creds:
+        import json
+        service_account_info = json.loads(firebase_creds)
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(service_account_info)
+            firebase_admin.initialize_app(cred)
+        print("✅ Firebase initialized with environment variable credentials")
+        db = firestore.client()
+    # Then, try to use the service account file (for local development)
+    elif os.path.exists("firebase-service-account.json"):
         if not firebase_admin._apps:
             cred = credentials.Certificate("firebase-service-account.json")
             firebase_admin.initialize_app(cred)
