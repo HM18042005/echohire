@@ -53,8 +53,13 @@ try:
         email = service_account_info.get('client_email', '<unknown>')
         print(f"✅ Firebase initialized with env credentials (key_id={key_id}, client_email={email})")
         db = firestore.client()
-    # Then, try to use the service account file (for local development)
+    # Then, try to use the service account file (for local development only)
     elif os.path.exists("firebase-service-account.json"):
+        running_on_render = os.getenv("PORT") is not None
+        allow_file = os.getenv("ALLOW_FIREBASE_FILE", "0") == "1"
+        if running_on_render and not allow_file:
+            print("⛔ Detected Render environment (PORT set). Ignoring service account file. Set ALLOW_FIREBASE_FILE=1 to override.")
+            raise RuntimeError("Service account file not allowed in Render; use FIREBASE_SERVICE_ACCOUNT_JSON env var.")
         if not firebase_admin._apps:
             cred = credentials.Certificate("firebase-service-account.json")
             firebase_admin.initialize_app(cred)
