@@ -9,15 +9,19 @@ class AppConfig {
       'prod' => '.env.production',
       _ => '.env',
     };
+    print('🔧 Loading environment file: $fileName (ENV=$env)');
     await dotenv.load(fileName: fileName);
+    print('🌐 Loaded BASE_URL: ${dotenv.env['BASE_URL']}');
   }
 
   static String get baseUrl {
     final value = dotenv.env['BASE_URL'];
     if (value == null || value.isEmpty) {
       // Safe fallback to emulator mapping if not configured
+      print('⚠️  BASE_URL not found in env, using fallback');
       return 'http://10.0.2.2:8000';
     }
+    print('✅ Using BASE_URL: $value');
     return value;
   }
 

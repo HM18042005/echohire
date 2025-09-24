@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
 import 'services/auth_service.dart';
+// import 'services/network_diagnostics.dart'; // Temporarily disabled
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'config.dart';
@@ -11,6 +12,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Load environment configuration (.env)
   await AppConfig.load();
+
+  // Skip network diagnostics for now since DNS is working
+  // await NetworkDiagnostics.runDiagnostics(AppConfig.baseUrl);
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const ProviderScope(child: MyApp()));
 }

@@ -142,7 +142,12 @@ class ApiService {
 
   final http.Client _client;
 
-  ApiService({http.Client? client}) : _client = client ?? http.Client();
+  ApiService({http.Client? client}) : _client = client ?? _createHttpClient();
+
+  /// Create HTTP client with proper timeout settings for remote connections
+  static http.Client _createHttpClient() {
+    return http.Client();
+  }
 
   /// Disposes the HTTP client
   void dispose() {
@@ -151,7 +156,11 @@ class ApiService {
 
   /// Generates headers for API requests
   Map<String, String> _getHeaders() {
-    return {'Content-Type': 'application/json', 'Accept': 'application/json'};
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'User-Agent': 'EchoHire-Flutter-App/1.0',
+    };
   }
 
   /// Get headers with Firebase authentication token
@@ -162,6 +171,7 @@ class ApiService {
     return {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'User-Agent': 'EchoHire-Flutter-App/1.0',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
@@ -333,14 +343,24 @@ class ApiService {
   /// linked to the authenticated user (userId inferred from the Firebase token).
   Future<List<Map<String, dynamic>>> getInterviews() async {
     try {
+      print('🔗 Making request to: $_baseUrl/interviews');
       final url = Uri.parse('$_baseUrl/interviews');
+      final headers = await _getAuthHeaders();
+      print('📤 Request headers: ${headers.keys.join(', ')}');
+
       final response = await _client
-          .get(url, headers: await _getAuthHeaders())
+          .get(url, headers: headers)
           .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () => throw NetworkException('Request timeout'),
+            const Duration(seconds: 30), // Increased timeout for remote server
+            onTimeout: () {
+              print('⏰ Request timeout after 30 seconds');
+              throw NetworkException(
+                'Request timeout - server may be slow to respond',
+              );
+            },
           );
 
+      print('📥 Response status: ${response.statusCode}');
       _handleResponse(response, 'Get interviews');
 
       final decoded = json.decode(response.body);
@@ -349,8 +369,10 @@ class ApiService {
           'Expected a list of interviews, got ${decoded.runtimeType}',
         );
       }
+      print('✅ Successfully loaded ${decoded.length} interviews');
       return decoded.cast<Map<String, dynamic>>();
     } catch (e) {
+      print('❌ Error getting interviews: $e');
       if (e is ApiException || e is NetworkException || e is ParseException) {
         rethrow;
       }
@@ -363,14 +385,29 @@ class ApiService {
   /// Returns a [Future<bool>] indicating if the API is healthy
   Future<bool> healthCheck() async {
     try {
+      print('🏥 Health check to: $_baseUrl/health');
       final url = Uri.parse('$_baseUrl/health');
 
       final response = await _client
           .get(url, headers: _getHeaders())
-          .timeout(const Duration(seconds: 10));
+          .timeout(
+            const Duration(seconds: 30), // Increased timeout
+            onTimeout: () {
+              print('⏰ Health check timeout');
+              throw NetworkException('Health check timeout');
+            },
+          );
 
-      return response.statusCode == 200;
+      print('🏥 Health check response: ${response.statusCode}');
+      if (response.statusCode == 200) {
+        print('✅ Health check successful: ${response.body}');
+        return true;
+      } else {
+        print('❌ Health check failed with status: ${response.statusCode}');
+        return false;
+      }
     } catch (e) {
+      print('❌ Health check error: $e');
       return false;
     }
   }

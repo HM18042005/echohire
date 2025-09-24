@@ -65,12 +65,17 @@ android {
                 signingConfigs.getByName("debug")
             }
 
-            // Optionally enable minification/proguard for release later
+            // Disable minification and shrinking for now to fix build issues
             isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        debug {
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

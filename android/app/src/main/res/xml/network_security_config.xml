@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow all HTTPS connections and trust system certificates -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Trust system certificates -->
+            <certificates src="system"/>
+            <!-- Trust user-added certificates -->
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Specific domain configuration for Render -->
+    <domain-config>
+        <domain includeSubdomains="true">onrender.com</domain>
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
