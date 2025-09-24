@@ -1,256 +1,555 @@
-# EchoHire - AI-Powered Interview Management System
+# EchoHire - AI-Powered Interview Platform
 
-## 📱 Project Overview
+<div align="center">
 
-EchoHire is a Flutter-based mobile application designed to streamline the interview process with AI-powered feedback and comprehensive candidate management. The app features a modern dark-themed interface with Firebase authentication and a FastAPI backend for secure data management.
+🎯 **Modern AI-driven interview management with real-time voice analysis and automated feedback**
 
-## 🎯 Current Status (August 2025)
+[![Flutter](https://img.shields.io/badge/Flutter-3.9.0+-02569B?logo=flutter)](https://flutter.dev)
+[![Python](https://img.shields.io/badge/Python-3.13+-3776AB?logo=python)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Latest-009688?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Firebase](https://img.shields.io/badge/Firebase-Latest-FFCA28?logo=firebase)](https://firebase.google.com)
 
-### ✅ **COMPLETED FEATURES**
+</div>
 
-#### 1. **Authentication System**
-- Firebase Authentication integration
-- Secure login/signup flow
-- ID token-based API authentication
+## 🚀 Overview
+
+EchoHire is a comprehensive AI-powered interview platform that combines Flutter mobile technology with advanced AI services to revolutionize the interview process. The platform features live AI-conducted interviews, real-time transcript analysis, and automated candidate evaluation.
+
+### Key Features
+- 🤖 **Live AI Interviews** - Vapi-powered voice AI conducts interviews
+- 📝 **Real-time Transcription** - Automatic speech-to-text with Firestore storage
+- 🧠 **Gemini AI Analysis** - Comprehensive candidate evaluation and insights
+- 🎨 **Modern UI** - Dark-themed Material Design interface
+- 🔐 **Secure Authentication** - Firebase Auth with token-based API protection
+- 📊 **Comprehensive Analytics** - Detailed feedback and scoring system
+
+## 📋 Project Status
+
+### ✅ Production-Ready Features
+
+#### 🔐 Authentication & Security
+- Firebase Authentication with secure token validation
 - User profile management with Riverpod state management
+- Protected API endpoints with Firebase ID token verification
 
-#### 2. **User Interface**
-- **Modern Dark Theme**: Consistent `#181A20` background with `#2972FF` primary color
-- **Login Screen**: Clean authentication interface
-- **Signup Screen**: Complete user registration with profile fields
-- **Home Screen**: Dashboard with interview cards and navigation
-- **Profile Screen**: User profile display with logout functionality
-- **New Interview Screen**: Form-based interview creation
+#### 🎨 User Interface
+- Modern dark theme (`#181A20` background, `#2972FF` primary)
+- Complete screen stack: Login, Signup, Home, Profile, Interview Management
+- Responsive design with Material Design components
+- Status indicators and real-time visual feedback
 
-#### 3. **Data Models & Architecture**
-- **User Profile Model**: Complete user data structure
-- **Interview Model**: Status-based interview management (pending, scheduled, completed, cancelled)
-- **Interview Feedback Model**: Comprehensive evaluation system with criteria breakdown
-- **State Management**: Riverpod controllers for interviews and feedback
+#### 🤖 AI Integration (Live)
+- **Vapi Integration**: Real AI-conducted interviews via web calls
+- **Environment-Driven**: Mock/live modes controlled by `ENABLE_MOCKS` flag
+- **Gemini Analysis**: Automated transcript analysis with scoring and insights
+- **Real-time Status**: Live polling of interview completion status
+- **Transcript Storage**: Automatic Firestore persistence of interview transcripts
 
-#### 4. **Backend Infrastructure**
-- **FastAPI Server**: RESTful API with Firebase Admin SDK
-- **Database**: Firebase Firestore for data persistence
-- **Authentication Middleware**: Secure endpoint protection
-- **API Endpoints**:
-  - `GET/PUT /me` - User profile management
-  - `POST/GET /interviews` - Interview CRUD operations
-  - `POST/GET /interviews/{id}/feedback` - Feedback management
-  - `GET /health` - Server health check
+#### 🗄️ Backend Infrastructure
+```
+FastAPI Server with comprehensive endpoints:
+├── Authentication & Profiles
+│   ├── GET/PUT /me - User profile management
+├── Interview Management  
+│   ├── POST/GET /interviews - Persistent interview records
+│   ├── GET /interviews/{id} - Individual interview details
+│   ├── POST/GET /interviews/{id}/feedback - Feedback management
+├── AI Interview System
+│   ├── POST /api/generate-interview - Generate question sets
+│   ├── GET /api/interviews/{user_id} - List AI sessions
+│   ├── POST /interviews/{id}/start-ai - Start live AI interview
+│   ├── GET /interviews/{id}/ai-status - Real-time status polling
+│   ├── GET /interviews/{id}/ai-feedback - Generated AI insights
+│   └── POST /interviews/{id}/stop-ai - Stop active sessions
+└── Health & Monitoring
+    └── GET /health - Server health check
+```
 
-#### 5. **API Integration**
-- Complete API client with authentication headers
-- Interview and feedback service methods
-- Error handling and loading states
-- Network communication with proper error handling
+#### 📱 Mobile App Features
+- Interview creation and management
+- Live AI interview participation with \"Join AI Call\" links
+- Real-time status monitoring during interviews
+- Results viewing with AI-generated feedback
+- Transcript display from Firestore storage
+- Environment-based configuration (`.env` files)
 
-#### 6. **Real-time Features**
-- Dynamic interview loading from Firebase
-- Status-based visual indicators
-- Real-time state updates with Riverpod
-- Form validation and user feedback
+### 🔄 Current Architecture
 
-## 🔧 **Technical Stack**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Flutter Mobile App                       │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   Screens   │  │    State    │  │      Services       │  │
+│  │             │  │ (Riverpod)  │  │                     │  │
+│  │ • Login     │  │             │  │ • ApiService        │  │
+│  │ • Home      │◄─┤ • Profile   │  │ • AuthService       │  │
+│  │ • AI Inter. │  │ • Interview │  │ • AppConfig (.env)  │  │
+│  │ • Results   │  │ • Feedback  │  │                     │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                              │ HTTP/Firebase
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   FastAPI Backend                          │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │    API      │  │    AI       │  │     Firebase        │  │
+│  │ Endpoints   │  │ Services    │  │   Integration       │  │
+│  │             │  │             │  │                     │  │
+│  │ • /me       │  │ • Gemini    │◄─┤ • Admin SDK        │  │
+│  │ • /interviews│  │ • Vapi     │  │ • Firestore         │  │
+│  │ • /ai-*     │  │ • Analysis  │  │ • Auth Verification │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                External AI Services                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   Google    │  │    Vapi     │  │     Firebase        │  │
+│  │   Gemini    │  │Voice AI API │  │   Cloud Services    │  │
+│  │             │  │             │  │                     │  │
+│  │ • Analysis  │  │ • Calls     │  │ • Authentication    │  │
+│  │ • Scoring   │  │ • Transcript│  │ • Firestore DB      │  │
+│  │ • Insights  │  │ • Recording │  │ • Real-time Sync    │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Frontend
-- **Flutter 3.9.0** - Cross-platform mobile framework
-- **Riverpod 2.4.9** - State management
-- **Firebase Auth** - User authentication
-- **HTTP Client** - API communication
-- **Material Design** - UI components
+## 🛠️ Technology Stack
 
-### Backend
-- **FastAPI** - Python web framework
-- **Firebase Admin SDK** - Server-side Firebase integration
-- **Pydantic** - Data validation
-- **Uvicorn** - ASGI server
-- **Firebase Firestore** - NoSQL database
+### Frontend (Flutter App)
+- **Framework**: Flutter 3.9.0+ with Dart
+- **State Management**: Riverpod 2.4.9 for reactive state
+- **Authentication**: Firebase Auth with secure token handling
+- **HTTP Client**: Native `http` package with custom API service
+- **Configuration**: `flutter_dotenv` for environment management
+- **Audio/Voice**: `flutter_sound`, `flutter_tts` for interview features
+- **Permissions**: `permission_handler` for microphone access
+- **UI**: Material Design 3 with custom dark theme
 
-### Infrastructure
-- **Firebase Project** - Authentication and database
-- **Local Development** - Backend server on `localhost:8000`
-- **Version Control** - Git repository
+### Backend (Python API)
+- **Framework**: FastAPI with Pydantic validation
+- **Server**: Uvicorn ASGI server
+- **Database**: Firebase Firestore (NoSQL)
+- **Authentication**: Firebase Admin SDK
+- **AI Services**: 
+  - Google Gemini Pro for analysis
+  - Vapi for voice AI interviews
+- **HTTP Client**: `httpx` for async external API calls
+- **Configuration**: `python-dotenv` for environment management
 
-## 🚀 **Setup Instructions**
+### Infrastructure & Services
+- **Authentication**: Firebase Authentication
+- **Database**: Firebase Firestore with real-time sync
+- **AI Analysis**: Google Gemini Pro API
+- **Voice AI**: Vapi voice interview platform
+- **Storage**: Firestore for transcripts, Firebase Storage (future)
+- **Deployment**: Local development, production-ready architecture
+
+## 🚀 Quick Start
 
 ### Prerequisites
-- Flutter SDK 3.9.0+
-- Python 3.13+
-- Firebase account with project setup
-- Android Studio/VS Code
+- Flutter 3.9.0+ SDK
+- Python 3.13+ with pip
+- Firebase project with Authentication and Firestore enabled
+- Google AI API key (Gemini)
+- Vapi API key for voice interviews
 
-### Backend Setup
-```bash
+### 1. Clone & Setup
+```powershell
+git clone https://github.com/yourusername/echohire.git
+cd echohire
+```
+
+### 2. Backend Setup
+```powershell
+# Navigate to backend
 cd backend
+
+# Create and activate virtual environment (Windows)
+python -m venv .venv
+.\.venv\\Scripts\\Activate.ps1
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Configure environment variables
+cp .env.example .env
+# Edit .env with your API keys:
+# - GOOGLE_AI_API_KEY=your_gemini_key
+# - VAPI_API_KEY=your_vapi_key
+
+# Add Firebase service account
+# Place firebase-service-account.json in backend/
+
+# Start server
 python main.py
 ```
-Server runs on: `http://localhost:8000`
+Backend runs at: `http://localhost:8000`
 
-### Frontend Setup
-```bash
+### 3. Flutter App Setup
+```powershell
+# Return to project root
+cd ..
+
+# Install Flutter dependencies
 flutter pub get
+
+# Configure Firebase
+# Place android/app/google-services.json
+# Update lib/firebase_options.dart
+
+# Configure environment for development
+# Edit .env for local development:
+# BASE_URL=http://10.0.2.2:8000  # Android emulator
+# ENABLE_MOCKS=false              # Use live AI services
+
+# Run the app
 flutter run
+# For device testing with real backend:
+flutter run --dart-define=ENV=device
 ```
 
-### Firebase Configuration
-1. Place `google-services.json` in `android/app/`
-2. Place `firebase-service-account.json` in `backend/`
-3. Update Firebase configuration in `lib/firebase_options.dart`
+### 4. Environment Configuration
 
-### Recent Fixes (August 28, 2025)
-- ✅ **Fixed Firestore Query Issue**: Resolved "query requires an index" error by implementing client-side sorting
-- ✅ **Code Cleanup**: Removed compilation errors and deprecated warnings
-- ✅ **Improved Performance**: Optimized backend queries for better reliability
+The app supports multiple environments through `.env` files:
 
-## 📋 **PENDING FEATURES**
-
-### 🔴 **HIGH PRIORITY**
-
-#### 1. **AI Integration**
-- **Interview Recording**: Audio/video capture during interviews
-- **Speech-to-Text**: Convert interview audio to text transcripts
-- **AI Analysis**: Implement AI-powered candidate evaluation
-- **Automated Scoring**: Generate interview scores based on responses
-- **Recommendation Engine**: AI-driven hiring recommendations
-
-#### 2. **Advanced Interview Features**
-- **Live Interview Mode**: Real-time interview conducting interface
-- **Question Bank**: Pre-defined interview questions by role/category
-- **Interview Templates**: Customizable interview formats
-- **Time Tracking**: Interview duration monitoring
-- **Notes System**: Real-time note-taking during interviews
-
-#### 3. **Reporting & Analytics**
-- **Dashboard Analytics**: Interview statistics and metrics
-- **Performance Reports**: Candidate evaluation summaries
-- **Export Features**: PDF reports and data export
-- **Comparison Tools**: Side-by-side candidate comparisons
-- **Historical Trends**: Interview performance over time
-
-#### 4. **Enhanced User Experience**
-- **Search & Filters**: Interview and candidate search functionality
-- **Calendar Integration**: Interview scheduling with calendar sync
-- **Notifications**: Push notifications for interview reminders
-- **Offline Support**: Basic functionality without internet
-- **Multi-language Support**: Internationalization
-
-### 🟡 **MEDIUM PRIORITY**
-
-#### 5. **Collaboration Features**
-- **Team Management**: Multiple interviewer support
-- **Role-based Access**: Different user permissions
-- **Interview Sharing**: Collaborative evaluation
-- **Comments System**: Team feedback and discussions
-- **Approval Workflows**: Multi-stage interview processes
-
-#### 6. **Integration Capabilities**
-- **HR System Integration**: Connect with existing HR tools
-- **Email Integration**: Automated candidate communication
-- **Calendar Sync**: Google Calendar/Outlook integration
-- **File Management**: Resume and document handling
-- **API Documentation**: Public API for third-party integrations
-
-### 🟢 **LOW PRIORITY**
-
-#### 7. **Advanced Features**
-- **Video Conferencing**: Built-in video call functionality
-- **White-boarding**: Digital whiteboard for technical interviews
-- **Code Evaluation**: Coding interview assessment tools
-- **Behavioral Analysis**: AI-powered behavioral insights
-- **Custom Branding**: Company-specific theming
-
-## 🏗️ **Architecture Overview**
-
-```
-EchoHire/
-├── lib/
-│   ├── models/           # Data models (User, Interview, Feedback)
-│   ├── screens/          # UI screens (Login, Home, Profile, etc.)
-│   ├── services/         # API client and authentication
-│   ├── state/            # Riverpod state controllers
-│   └── main.dart         # App entry point
-├── backend/
-│   ├── main.py           # FastAPI server
-│   └── requirements.txt  # Python dependencies
-├── android/              # Android-specific configuration
-└── firebase.json         # Firebase configuration
+#### `.env` (Development)
+```env
+BASE_URL=http://10.0.2.2:8000
+ENABLE_MOCKS=false
 ```
 
-## 📱 **Current User Flow**
+#### `.env.device` (Device Testing)
+```env
+BASE_URL=http://192.168.1.100:8000  # Your PC's LAN IP
+ENABLE_MOCKS=false
+```
 
-1. **Authentication**: User logs in/signs up with Firebase
-2. **Home Dashboard**: View recent interviews with status indicators
-3. **Create Interview**: Add new interview with job details and date
-4. **Interview Management**: View, edit, and track interview status
-5. **Profile Management**: Update user information and logout
+#### `.env.production` (Production)
+```env
+BASE_URL=https://api.yourdomain.com
+ENABLE_MOCKS=false
+```
 
-## 🔐 **Security Features**
+Use with: `flutter run --dart-define=ENV=device` or `ENV=production`
 
-- Firebase ID token authentication
-- Secure API endpoints with middleware
-- User-specific data isolation
-- Input validation and sanitization
-- HTTPS communication (production)
+## 🎯 Usage Guide
 
-## 🎨 **Design System**
+### For Interviewers
+1. **Sign Up/Login**: Create account or log in with existing credentials
+2. **Create Interview**: Add job details, company, and schedule
+3. **Start AI Interview**: Launch live AI-conducted interview session
+4. **Monitor Progress**: Real-time status updates during interview
+5. **Review Results**: View AI-generated feedback, scores, and transcript
 
-### Color Palette
-- **Background**: `#181A20` (Dark charcoal)
-- **Primary**: `#2972FF` (Bright blue)
-- **Surface**: `#262A34` (Dark gray)
-- **Text**: `#FFFFFF` (White)
-- **Success**: `#4CAF50` (Green)
-- **Warning**: `#FF9800` (Orange)
-- **Error**: `#F44336` (Red)
+### Interview Flow
+```
+Create Interview → Start AI Session → Join AI Call → Interview Completion → Results & Analysis
+      ↓                ↓              ↓                    ↓                    ↓
+   Firestore       Vapi API      Browser/App        Status Polling      Gemini Analysis
+```
 
-### Components
-- Consistent card layouts with rounded corners
-- Status indicators with color coding
-- Material Design floating action buttons
-- Form inputs with dark theme styling
+### For Candidates
+1. Receive interview link from interviewer
+2. Join AI-powered voice interview
+3. Participate in structured Q&A session
+4. Automatic transcript and analysis generation
 
-## 🐛 **Known Issues**
+## 🔧 Configuration
 
-1. **Backend Dependency**: App requires backend server to be running
-2. **Network Handling**: Limited offline functionality
-3. **Error Recovery**: Some network errors need app restart
-4. **Performance**: Large interview lists may have scroll performance issues
+### Environment Variables
 
-## 🚀 **Next Steps**
+#### Backend (`backend/.env`)
+```env
+# AI Service Keys (Required)
+GOOGLE_AI_API_KEY=your_gemini_api_key_here
+VAPI_API_KEY=your_vapi_private_key_here
 
-### Immediate (Week 1-2)
-1. Implement AI interview analysis integration
-2. Add interview recording functionality
-3. Create comprehensive feedback system
-4. Implement search and filter capabilities
+# Firebase Configuration
+FIREBASE_PROJECT_ID=your_firebase_project_id
 
-### Short-term (Month 1)
-1. Add calendar integration for scheduling
-2. Implement notification system
-3. Create analytics dashboard
-4. Add export/reporting features
+# Server Configuration
+DEBUG=True
+HOST=0.0.0.0
+PORT=8000
+```
 
-### Long-term (Month 2-3)
-1. Team collaboration features
-2. Advanced AI insights
-3. Third-party integrations
-4. Performance optimizations
+#### Frontend (`.env` files)
+```env
+# API Configuration
+BASE_URL=http://10.0.2.2:8000
 
-## 👥 **Team Notes**
+# Feature Flags
+ENABLE_MOCKS=false  # Set to true for offline development
+```
 
-- **Current Focus**: Core interview management system is complete
-- **Ready for Demo**: Basic CRUD operations and UI are functional
-- **Next Priority**: AI integration for interview analysis
-- **Technical Debt**: Need to add comprehensive testing suite
-- **Documentation**: API documentation needs to be created
+### Firebase Setup
+1. Create Firebase project with Authentication and Firestore
+2. Enable Email/Password authentication
+3. Download `google-services.json` for Android
+4. Download service account JSON for backend
+5. Configure Firestore security rules
 
-## 📞 **Contact & Support**
+### API Keys Setup
+1. **Google AI (Gemini)**: Get key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. **Vapi**: Register at [Vapi.ai](https://vapi.ai) and get API keys
+3. **Firebase**: Service account from Firebase Console
 
-For technical questions or feature requests, please refer to the development team or create issues in the repository.
+## 🏗️ Project Structure
+
+```
+echohire/
+├── 📱 lib/                          # Flutter app source
+│   ├── 🎨 screens/                  # UI screens
+│   │   ├── login_screen.dart
+│   │   ├── home_screen.dart
+│   │   ├── ai_interview_screen.dart # Live AI interview UI
+│   │   ├── interview_results_screen.dart
+│   │   └── ...
+│   ├── 🔄 state/                    # Riverpod controllers
+│   │   ├── profile_controller.dart
+│   │   ├── interview_controller.dart
+│   │   └── feedback_controller.dart
+│   ├── 🛠️ services/                 # API and utilities
+│   │   ├── api_service.dart         # HTTP client
+│   │   └── auth_service.dart        # Firebase auth
+│   ├── 📊 models/                   # Data models
+│   │   ├── interview.dart
+│   │   ├── user_profile.dart
+│   │   └── interview_feedback.dart
+│   ├── ⚙️ config.dart               # Environment configuration
+│   └── 🚀 main.dart                 # App entry point
+├── 🐍 backend/                      # FastAPI server
+│   ├── 🎯 main.py                   # FastAPI application
+│   ├── 🤖 ai_services.py            # Gemini & Vapi integration
+│   ├── 📋 requirements.txt          # Python dependencies
+│   ├── 🔑 .env                      # Environment variables
+│   └── 📜 firebase-service-account.json
+├── 🤖 android/                      # Android configuration
+│   ├── 📦 app/build.gradle.kts      # Build configuration
+│   ├── 🔑 app/google-services.json  # Firebase config
+│   └── 🔒 keystore.properties.example
+├── ⚙️ Configuration files
+│   ├── .env                         # Development environment
+│   ├── .env.device                  # Device testing environment  
+│   ├── .env.production              # Production environment
+│   └── .env.example                 # Template
+└── 📚 Documentation
+    ├── README.md                    # This file
+    ├── SETUP_GUIDE.md              # Detailed setup instructions
+    └── PHASE_1_COMPLETE.md         # Development milestones
+```
+
+## 🧪 Development
+
+### Running Tests
+```powershell
+# Flutter tests
+flutter test
+
+# Backend tests (if available)
+cd backend
+python -m pytest
+```
+
+### Code Quality
+```powershell
+# Flutter analysis
+flutter analyze
+
+# Python linting
+cd backend
+flake8 .
+```
+
+### Building for Production
+```powershell
+# Android APK
+flutter build apk --release --dart-define=ENV=production
+
+# Android App Bundle (Play Store)
+flutter build appbundle --release --dart-define=ENV=production
+```
+
+## 🔐 Security & Privacy
+
+### Data Protection
+- All API endpoints require Firebase authentication
+- User data is isolated by Firebase UID
+- Interview transcripts stored securely in Firestore
+- API keys and secrets managed via environment variables
+
+### Permissions
+- **Microphone**: Required for interview recording
+- **Internet**: API communication and Firebase sync
+- **Network State**: Connection status monitoring
+
+### Privacy Considerations
+- Interview recordings processed by Vapi and Gemini AI
+- Transcripts stored in your Firebase project
+- No data shared with third parties beyond AI processing
+- Users control their data through Firebase Authentication
+
+## 🚀 Deployment
+
+### Backend Deployment Options
+
+#### Option 1: Cloud Run (Google Cloud)
+```dockerfile
+# Dockerfile example
+FROM python:3.13-slim
+WORKDIR /app
+COPY backend/ .
+RUN pip install -r requirements.txt
+CMD [\"python\", \"main.py\"]
+```
+
+#### Option 2: Railway/Render
+- Push backend/ to Git repository
+- Configure environment variables in platform dashboard
+- Deploy automatically on push
+
+#### Option 3: VPS/Dedicated Server
+```bash
+# Ubuntu/Debian setup
+sudo apt update
+sudo apt install python3 python3-pip nginx certbot
+# Configure reverse proxy and SSL
+```
+
+### Mobile App Distribution
+
+#### Internal Testing
+```powershell
+# Build signed APK
+flutter build apk --release --dart-define=ENV=production
+```
+
+#### Play Store Release
+```powershell
+# Build App Bundle
+flutter build appbundle --release --dart-define=ENV=production
+# Upload to Google Play Console
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### \"No file or variants found for asset: .env\"
+```powershell
+# Ensure .env files exist
+ls .env*
+# Run with explicit environment
+flutter run --dart-define=ENV=device
+```
+
+#### \"Failed to connect to backend\"
+```powershell
+# Check backend is running
+curl http://localhost:8000/health
+# For Android emulator, use 10.0.2.2
+# For physical device, use your PC's IP address
+```
+
+#### \"Firebase token expired\"
+```powershell
+# Restart the app to refresh token
+# Or implement token refresh in AuthService
+```
+
+#### \"Vapi call failed\"
+- Verify `VAPI_API_KEY` in backend `.env`
+- Check Vapi dashboard for account status
+- Ensure sufficient Vapi credits
+
+#### \"Gemini analysis error\"
+- Verify `GOOGLE_AI_API_KEY` in backend `.env`
+- Check Google AI Studio for quota limits
+- Validate API key permissions
+
+### Network Configuration
+
+#### Android Emulator
+```env
+BASE_URL=http://10.0.2.2:8000  # Maps to localhost:8000
+```
+
+#### Physical Device (same network)
+```env
+BASE_URL=http://192.168.1.100:8000  # Replace with your PC's IP
+```
+
+#### ADB Reverse (USB debugging)
+```powershell
+adb reverse tcp:8000 tcp:8000
+# Then use BASE_URL=http://127.0.0.1:8000
+```
+
+## 📈 Roadmap
+
+### Phase 2 (Current Development)
+- [ ] Enhanced AI analysis with behavioral insights
+- [ ] Multi-language support for interviews
+- [ ] Calendar integration for scheduling
+- [ ] Team collaboration features
+
+### Phase 3 (Future)
+- [ ] Video interview support
+- [ ] Advanced analytics dashboard
+- [ ] Integration with HR systems
+- [ ] Mobile interviewer tools
+
+### Phase 4 (Enterprise)
+- [ ] White-label solutions
+- [ ] Advanced security features
+- [ ] Custom AI model training
+- [ ] Enterprise SSO integration
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Guidelines
+- Follow Flutter/Dart style guidelines
+- Maintain Python PEP 8 standards
+- Update documentation for new features
+- Add tests for critical functionality
+- Ensure environment variable configuration
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🔗 Links & Resources
+
+- **Flutter Documentation**: [flutter.dev](https://flutter.dev/docs)
+- **FastAPI Documentation**: [fastapi.tiangolo.com](https://fastapi.tiangolo.com)
+- **Firebase Console**: [console.firebase.google.com](https://console.firebase.google.com)
+- **Google AI Studio**: [makersuite.google.com](https://makersuite.google.com)
+- **Vapi Documentation**: [docs.vapi.ai](https://docs.vapi.ai)
+
+## 📞 Support
+
+For technical support or questions:
+- Create an issue in the GitHub repository
+- Check the troubleshooting section above
+- Review the detailed setup guide in `SETUP_GUIDE.md`
 
 ---
 
-**Last Updated**: August 28, 2025  
-**Version**: 1.0.0-beta  
-**Status**: Development Phase
+<div align=\"center\">
+
+**EchoHire** - Revolutionizing interviews with AI  
+*Built with ❤️ using Flutter, FastAPI, and cutting-edge AI*
+
+**Last Updated**: September 24, 2025 | **Version**: 1.2.0 | **Status**: Production Ready
+
+</div>
