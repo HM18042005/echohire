@@ -80,7 +80,9 @@
 - **Vapi Voice AI**: Conducting voice interviews
 
 ### Frontend Configuration
-- **API Base URL**: `http://10.0.2.2:8000` (Android emulator)
+- **API Base URL**: Configured via `.env` as `BASE_URL`.
+   - Default fallback for Android emulator is `http://10.0.2.2:8000` (maps to host `localhost:8000`).
+- **Mock Mode**: Controlled via `.env` `ENABLE_MOCKS` (defaults to ON in dev, OFF in prod).
 - **Flutter Services**: API client, authentication, state management
 
 ## 📱 Testing the AI Interview Flow
@@ -88,10 +90,11 @@
 ### Complete Workflow
 1. **Create Interview**: Add new interview in the app
 2. **Start AI Interview**: Tap "Start AI Interview" button
-3. **Voice Recording**: AI conducts voice interview via Vapi
-4. **Real-time Status**: Monitor interview progress
-5. **AI Analysis**: Gemini analyzes transcript automatically
-6. **View Feedback**: Review comprehensive AI-generated feedback
+3. **Voice Interview**: Vapi conducts the session (no client audio upload required)
+4. **Real-time Status**: App polls status until completion
+5. **Transcript + AI Analysis**: Backend fetches transcript and generates AI feedback
+6. **Store Transcript**: Client saves transcript text in Firestore (`transcripts/{interviewId}`)
+7. **View Feedback**: Review AI-generated feedback and transcript in app
 
 ### Mock Mode (No API Keys)
 - System gracefully falls back to mock data

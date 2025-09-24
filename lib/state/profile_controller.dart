@@ -2,17 +2,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user_profile.dart';
 import '../services/api_client.dart';
+import '../config.dart';
 
 class ProfileState {
   final UserProfile? profile;
   final bool isLoading;
   final String? error;
 
-  ProfileState({
-    this.profile,
-    this.isLoading = false,
-    this.error,
-  });
+  ProfileState({this.profile, this.isLoading = false, this.error});
 
   ProfileState copyWith({
     UserProfile? profile,
@@ -36,20 +33,22 @@ class ProfileController extends StateNotifier<ProfileState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final profileData = await _apiClient.getProfile()
-          .timeout(const Duration(seconds: 10));
+      final profileData = await _apiClient.getProfile().timeout(
+        const Duration(seconds: 10),
+      );
       final profile = UserProfile.fromJson(profileData);
       state = state.copyWith(profile: profile, isLoading: false);
     } catch (e) {
       print('Error loading profile: $e');
-      
+
       // If there's a connection issue or the endpoint doesn't exist, create a mock profile
-      if (e.toString().contains('TimeoutException') || 
-          e.toString().contains('SocketException') ||
-          e.toString().contains('connection') ||
-          e.toString().contains('404') ||
-          e.toString().contains('Failed to load profile')) {
-        
+      final looksLikeConnectivityIssue = e.toString().contains(
+        RegExp(
+          'TimeoutException|SocketException|connection|404|Failed to load profile',
+        ),
+      );
+
+      if (AppConfig.enableMocks && looksLikeConnectivityIssue) {
         // Create a mock profile based on Firebase user
         final mockProfile = UserProfile(
           uid: 'mock-user-id',
@@ -61,9 +60,9 @@ class ProfileController extends StateNotifier<ProfileState> {
           createdAt: DateTime.now().toIso8601String(),
           updatedAt: DateTime.now().toIso8601String(),
         );
-        
+
         state = state.copyWith(
-          profile: mockProfile, 
+          profile: mockProfile,
           isLoading: false,
           error: 'Using offline mode - ${e.toString()}',
         );
@@ -97,6 +96,7 @@ class ProfileController extends StateNotifier<ProfileState> {
   }
 }
 
-final profileControllerProvider = StateNotifierProvider<ProfileController, ProfileState>((ref) {
-  return ProfileController();
-});
+final profileControllerProvider =
+    StateNotifierProvider<ProfileController, ProfileState>((ref) {
+      return ProfileController();
+    });

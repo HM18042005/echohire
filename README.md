@@ -91,13 +91,13 @@ FastAPI Server with comprehensive endpoints:
                               │ HTTP/Firebase
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   FastAPI Backend                          │
+│                   FastAPI Backend                           │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │    API      │  │    AI       │  │     Firebase        │  │
 │  │ Endpoints   │  │ Services    │  │   Integration       │  │
 │  │             │  │             │  │                     │  │
-│  │ • /me       │  │ • Gemini    │◄─┤ • Admin SDK        │  │
+│  │ • /me       │  │ • Gemini    │◄─┤ • Admin SDK         │  │
 │  │ • /interviews│  │ • Vapi     │  │ • Firestore         │  │
 │  │ • /ai-*     │  │ • Analysis  │  │ • Auth Verification │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
@@ -105,7 +105,7 @@ FastAPI Server with comprehensive endpoints:
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                External AI Services                        │
+│                External AI Services                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │   Google    │  │    Vapi     │  │     Firebase        │  │
 │  │   Gemini    │  │Voice AI API │  │   Cloud Services    │  │

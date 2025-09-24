@@ -2,10 +2,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
+import '../config.dart';
 
 class ApiClient {
-  // Use 10.0.2.2 for Android emulator (maps to host machine's localhost)
-  static const String baseUrl = 'http://10.0.2.2:8000';
   final AuthService _authService = AuthService();
 
   Future<Map<String, String>> _getHeaders() async {
@@ -19,7 +18,7 @@ class ApiClient {
   Future<Map<String, dynamic>> getProfile() async {
     final headers = await _getHeaders();
     final response = await http.get(
-      Uri.parse('$baseUrl/me'),
+      Uri.parse('${AppConfig.baseUrl}/me'),
       headers: headers,
     );
 
@@ -32,10 +31,12 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> updates) async {
+  Future<Map<String, dynamic>> updateProfile(
+    Map<String, dynamic> updates,
+  ) async {
     final headers = await _getHeaders();
     final response = await http.put(
-      Uri.parse('$baseUrl/me'),
+      Uri.parse('${AppConfig.baseUrl}/me'),
       headers: headers,
       body: json.encode(updates),
     );
@@ -50,10 +51,12 @@ class ApiClient {
   }
 
   // Interview endpoints
-  Future<Map<String, dynamic>> createInterview(Map<String, dynamic> interviewData) async {
+  Future<Map<String, dynamic>> createInterview(
+    Map<String, dynamic> interviewData,
+  ) async {
     final headers = await _getHeaders();
     final response = await http.post(
-      Uri.parse('$baseUrl/interviews'),
+      Uri.parse('${AppConfig.baseUrl}/interviews'),
       headers: headers,
       body: json.encode(interviewData),
     );
@@ -70,7 +73,7 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> getUserInterviews() async {
     final headers = await _getHeaders();
     final response = await http.get(
-      Uri.parse('$baseUrl/interviews'),
+      Uri.parse('${AppConfig.baseUrl}/interviews'),
       headers: headers,
     );
 
@@ -87,7 +90,7 @@ class ApiClient {
   Future<Map<String, dynamic>> getInterview(String interviewId) async {
     final headers = await _getHeaders();
     final response = await http.get(
-      Uri.parse('$baseUrl/interviews/$interviewId'),
+      Uri.parse('${AppConfig.baseUrl}/interviews/$interviewId'),
       headers: headers,
     );
 
@@ -103,10 +106,13 @@ class ApiClient {
   }
 
   // Feedback endpoints
-  Future<Map<String, dynamic>> createFeedback(String interviewId, Map<String, dynamic> feedbackData) async {
+  Future<Map<String, dynamic>> createFeedback(
+    String interviewId,
+    Map<String, dynamic> feedbackData,
+  ) async {
     final headers = await _getHeaders();
     final response = await http.post(
-      Uri.parse('$baseUrl/interviews/$interviewId/feedback'),
+      Uri.parse('${AppConfig.baseUrl}/interviews/$interviewId/feedback'),
       headers: headers,
       body: json.encode(feedbackData),
     );
@@ -125,7 +131,7 @@ class ApiClient {
   Future<Map<String, dynamic>> getFeedback(String interviewId) async {
     final headers = await _getHeaders();
     final response = await http.get(
-      Uri.parse('$baseUrl/interviews/$interviewId/feedback'),
+      Uri.parse('${AppConfig.baseUrl}/interviews/$interviewId/feedback'),
       headers: headers,
     );
 
@@ -141,7 +147,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> healthCheck() async {
-    final response = await http.get(Uri.parse('$baseUrl/health'));
+    final response = await http.get(Uri.parse('${AppConfig.baseUrl}/health'));
     if (response.statusCode == 200) {
       return json.decode(response.body);
     } else {

@@ -5,9 +5,12 @@ import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Load environment configuration (.env)
+  await AppConfig.load();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const ProviderScope(child: MyApp()));
 }

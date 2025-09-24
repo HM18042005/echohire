@@ -40,6 +40,7 @@ dependencies:
   flutter_riverpod: ^2.4.9
   provider: ^6.1.1
   http: ^1.1.2
+  flutter_dotenv: ^5.1.0
   
   # AI and Voice Integration
   web_socket_channel: ^2.4.0    # For real-time communication
@@ -47,6 +48,7 @@ dependencies:
   flutter_sound: ^9.2.13        # Audio recording
   flutter_tts: ^3.8.5           # Text-to-speech for AI responses
   dio: ^5.3.2                   # Advanced HTTP client for AI APIs
+  url_launcher: ^6.3.0          # Open web call links
 
 dev_dependencies:
   flutter_test:
@@ -71,9 +73,10 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - .env
+    - .env.production
+    - .env.device
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -43,3 +43,21 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android keystore and local config
+**/local.properties
+**/keystore.properties
+**/*.keystore
+**/*.jks
+
+# Backend secrets (do not commit)
+backend/.env
+backend/*.service-account.json
+backend/firebase-service-account.json
+backend/*-firebase-adminsdk-*.json
+
+# Python
+backend/.venv/
+venv/
+__pycache__/
+*.pyc

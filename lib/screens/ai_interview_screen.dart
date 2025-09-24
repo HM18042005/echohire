@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/interview.dart';
+import '../config.dart';
+import '../services/api_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import '../services/auth_service.dart';
+import 'interview_results_screen.dart';
 
 /// AIInterviewScreen manages the live AI interview experience
 class AIInterviewScreen extends ConsumerStatefulWidget {
@@ -45,12 +53,17 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
 
   // Timing
   Duration _recordingDuration = Duration.zero;
-  Duration _totalInterviewDuration = Duration.zero;
+  // Total interview duration could be tracked in future for analytics
 
   // UI state
   bool _isRecording = false;
   bool _isSpeaking = false;
   bool _showInstructions = true;
+
+  // Real AI session (when mocks disabled)
+  String? _webCallUrl;
+  bool _startedRealCall = false;
+  Timer? _statusTimer;
 
   @override
   void initState() {
@@ -67,6 +80,11 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
     _conversationScrollController.dispose();
     _recorder?.closeRecorder();
     _flutterTts?.stop();
+    // Attempt to stop AI interview if a real call was started
+    if (_startedRealCall) {
+      ApiServiceSingleton.instance.stopAIInterview(widget.interview.id);
+    }
+    _statusTimer?.cancel();
     super.dispose();
   }
 
@@ -133,6 +151,12 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
       _currentState = InterviewState.starting;
     });
 
+    // If mocks are disabled, start real AI session and surface join link
+    if (!AppConfig.enableMocks) {
+      await _startRealAIInterview();
+      _startStatusPolling();
+    }
+
     _addToConversationLog(
       ConversationEntry(
         speaker: Speaker.ai,
@@ -147,7 +171,140 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
     );
 
     await Future.delayed(const Duration(seconds: 2));
-    _askNextQuestion();
+    if (AppConfig.enableMocks) {
+      _askNextQuestion();
+    }
+  }
+
+  Future<void> _startRealAIInterview() async {
+    try {
+      final res = await ApiServiceSingleton.instance.startAIInterview(
+        widget.interview.id,
+      );
+      setState(() {
+        _startedRealCall = true;
+        _webCallUrl = (res['webCallUrl'] ?? res['web_call_url'])?.toString();
+      });
+
+      if (_webCallUrl != null) {
+        _addToConversationLog(
+          ConversationEntry(
+            speaker: Speaker.ai,
+            content:
+                'Real AI session ready. Tap "Join AI Call" to connect in your browser.',
+            timestamp: DateTime.now(),
+          ),
+        );
+      }
+    } catch (e) {
+      _showError('Failed to start AI interview: $e');
+    }
+  }
+
+  Future<void> _openWebCall() async {
+    final url = _webCallUrl;
+    if (url == null) return;
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      final ok = await launchUrl(uri);
+      if (!ok) {
+        _showError('Could not open the AI call link');
+      }
+    } else {
+      _showError('Cannot launch the AI call link');
+    }
+  }
+
+  void _startStatusPolling() {
+    _statusTimer?.cancel();
+    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+      try {
+        final res = await ApiServiceSingleton.instance.getAIInterviewStatus(
+          widget.interview.id,
+        );
+        final status = (res['status'] ?? '').toString().toLowerCase();
+        final transcriptUrl = res['transcriptUrl']?.toString();
+
+        if (status == 'completed' || status == 'failed') {
+          _statusTimer?.cancel();
+          await _onInterviewCompleted(transcriptUrl: transcriptUrl);
+        }
+      } catch (e) {
+        // Ignore transient polling errors
+      }
+    });
+  }
+
+  Future<void> _onInterviewCompleted({String? transcriptUrl}) async {
+    // If we have a transcript URL, try to download and store the transcript text in Firestore
+    if (transcriptUrl != null && transcriptUrl.isNotEmpty) {
+      try {
+        final resp = await http
+            .get(Uri.parse(transcriptUrl))
+            .timeout(const Duration(seconds: 15));
+        if (resp.statusCode == 200 && resp.body.isNotEmpty) {
+          final transcriptText = resp.body;
+          final uid = AuthService().currentUser?.uid;
+          if (uid != null) {
+            final now = DateTime.now();
+            await FirebaseFirestore.instance
+                .collection('transcripts')
+                .doc(widget.interview.id)
+                .set({
+                  'interviewId': widget.interview.id,
+                  'userId': uid,
+                  'transcript': transcriptText,
+                  'createdAt': now.toIso8601String(),
+                  'updatedAt': now.toIso8601String(),
+                }, SetOptions(merge: true));
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Transcript saved to Firebase')),
+              );
+            }
+          }
+        }
+      } catch (_) {
+        // Non-fatal if transcript fetch/store fails
+      }
+    }
+
+    // Keep existing mock completion UX
+    if (AppConfig.enableMocks) {
+      await _endInterview();
+    } else {
+      // For real flow: show completion dialog and option to view results
+      if (mounted) {
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Interview Completed'),
+            content: const Text(
+              'Your interview has completed. The transcript has been saved.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Close'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          InterviewResultsScreen(interview: widget.interview),
+                    ),
+                  );
+                },
+                child: const Text('View Results'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _askNextQuestion() async {
@@ -346,6 +503,16 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
             },
           ),
           actions: [
+            if (_webCallUrl != null) ...[
+              TextButton.icon(
+                onPressed: _openWebCall,
+                icon: const Icon(Icons.link, color: Colors.blueAccent),
+                label: const Text(
+                  'Join AI Call',
+                  style: TextStyle(color: Colors.blueAccent),
+                ),
+              ),
+            ],
             IconButton(
               icon: const Icon(Icons.info_outline),
               onPressed: () => _showInstructionsDialog(),
@@ -721,29 +888,27 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          // Recording Control
-          if (_currentState == InterviewState.waitingForAnswer) ...[
-            if (!_isRecording) ...[
-              ElevatedButton.icon(
-                onPressed: _startRecording,
-                icon: const Icon(Icons.mic),
-                label: const Text('Start Recording'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                ),
+          // Primary control: Start/Stop during the appropriate states
+          if (_currentState == InterviewState.recording) ...[
+            ElevatedButton.icon(
+              onPressed: _stopRecording,
+              icon: const Icon(Icons.stop),
+              label: const Text('Stop Recording'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey,
+                foregroundColor: Colors.white,
               ),
-            ] else ...[
-              ElevatedButton.icon(
-                onPressed: _stopRecording,
-                icon: const Icon(Icons.stop),
-                label: const Text('Stop Recording'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey,
-                  foregroundColor: Colors.white,
-                ),
+            ),
+          ] else if (_currentState == InterviewState.waitingForAnswer) ...[
+            ElevatedButton.icon(
+              onPressed: _startRecording,
+              icon: const Icon(Icons.mic),
+              label: const Text('Start Recording'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
               ),
-            ],
+            ),
           ] else ...[
             ElevatedButton.icon(
               onPressed: null,
@@ -753,7 +918,8 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
           ],
 
           // Skip Question (optional)
-          if (_currentState == InterviewState.waitingForAnswer) ...[
+          if (_currentState == InterviewState.waitingForAnswer &&
+              !_isRecording) ...[
             TextButton.icon(
               onPressed: () => _showSkipDialog(),
               icon: const Icon(Icons.skip_next),

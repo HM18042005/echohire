@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_sound/flutter_sound.dart';
 import '../models/interview.dart';
 import '../services/api_service.dart';
 import 'ai_interview_screen.dart';
+import 'interview_results_screen.dart';
 
 /// InterviewDetailScreen displays comprehensive interview information and actions
 class InterviewDetailScreen extends ConsumerStatefulWidget {
@@ -17,6 +19,28 @@ class InterviewDetailScreen extends ConsumerStatefulWidget {
 
 class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
   bool _isStartingInterview = false;
+  FlutterSoundPlayer? _player;
+  bool _isPlaying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize audio player lazily to avoid blocking build
+    Future.microtask(_initPlayer);
+  }
+
+  Future<void> _initPlayer() async {
+    try {
+      _player = FlutterSoundPlayer();
+      await _player!.openPlayer();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to initialize player: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -263,7 +287,7 @@ class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
                   ),
                 ),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -290,28 +314,23 @@ class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            ...widget.interview.aiInsights!
-                .map(
-                  (insight) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '• ',
-                          style: TextStyle(color: Colors.purple),
-                        ),
-                        Expanded(
-                          child: Text(
-                            insight,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ),
-                      ],
+            ...widget.interview.aiInsights!.map(
+              (insight) => Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• ', style: TextStyle(color: Colors.purple)),
+                    Expanded(
+                      child: Text(
+                        insight,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                     ),
-                  ),
-                )
-                .toList(),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -367,16 +386,9 @@ class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
             if (widget.interview.audioRecordingUrl != null) ...[
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: () {
-                  // TODO: Implement audio playback
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Audio playback coming soon!'),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Play Recording'),
+                onPressed: _togglePlayback,
+                icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
+                label: Text(_isPlaying ? 'Pause Recording' : 'Play Recording'),
               ),
             ],
           ],
@@ -441,10 +453,11 @@ class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () {
-                  // TODO: Navigate to detailed results screen
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Detailed results coming soon!'),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          InterviewResultsScreen(interview: widget.interview),
                     ),
                   );
                 },
@@ -530,6 +543,44 @@ class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
     );
   }
 
+  Future<void> _togglePlayback() async {
+    final url = widget.interview.audioRecordingUrl;
+    if (url == null || url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No recording available.')));
+      return;
+    }
+
+    if (_player == null) {
+      await _initPlayer();
+    }
+
+    try {
+      if (!_isPlaying) {
+        await _player!.startPlayer(
+          fromURI: url,
+          codec: Codec.aacADTS,
+          whenFinished: () {
+            if (mounted) {
+              setState(() => _isPlaying = false);
+            }
+          },
+        );
+        if (mounted) setState(() => _isPlaying = true);
+      } else {
+        await _player!.stopPlayer();
+        if (mounted) setState(() => _isPlaying = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Playback error: $e')));
+      }
+    }
+  }
+
   Color _getStatusColor() {
     switch (widget.interview.status) {
       case InterviewStatus.completed:
@@ -577,5 +628,11 @@ class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
 
   String _formatDate(DateTime date) {
     return '${date.day}/${date.month}/${date.year}';
+  }
+
+  @override
+  void dispose() {
+    _player?.closePlayer();
+    super.dispose();
   }
 }

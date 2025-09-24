@@ -20,6 +20,15 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import httpx
 from ai_services import gemini_service, vapi_service
 
+# Helper to stop Vapi call
+async def stop_vapi_call(call_id: str) -> bool:
+    """Stop a Vapi call via the VapiInterviewService; returns True on success."""
+    try:
+        return await vapi_service.stop_call(call_id)
+    except Exception as e:
+        print(f"stop_vapi_call error: {e}")
+        return False
+
 # Initialize Firebase Admin SDK
 try:
     # First, try to use the service account file (most reliable for development)
@@ -200,6 +209,7 @@ class AIInterviewStartResponse(BaseModel):
     vapiCallId: str
     status: str
     message: str
+    webCallUrl: Optional[str] = None
 
 class AIInterviewStatusResponse(BaseModel):
     aiSessionId: str
@@ -962,6 +972,7 @@ async def start_ai_interview(
         interview_ref.update({
             "aiSessionId": ai_session_id,
             "vapiCallId": vapi_response.get("callId", vapi_call_id),
+            "webCallUrl": vapi_response.get("webCallUrl"),
             "status": "inProgress",
             "updatedAt": now
         })
@@ -970,7 +981,8 @@ async def start_ai_interview(
             aiSessionId=ai_session_id,
             vapiCallId=vapi_response.get("callId", vapi_call_id),
             status="in_progress",
-            message=vapi_response.get("message", "AI interview session started successfully")
+            message=vapi_response.get("message", "AI interview session started successfully"),
+            webCallUrl=vapi_response.get("webCallUrl")
         )
     except HTTPException:
         raise
@@ -1006,13 +1018,43 @@ async def get_ai_interview_status(
         vapi_call_id = interview_data.get("vapiCallId")
         if vapi_call_id:
             vapi_status = await vapi_service.get_call_status(vapi_call_id)
-            
+
+            # Normalize and persist status/artifacts when available
+            status_val = vapi_status.get("status", interview_data.get("status", "pending"))
+            duration_val = vapi_status.get("duration", interview_data.get("interviewDuration"))
+            transcript_url = vapi_status.get("transcriptUrl", interview_data.get("transcriptUrl"))
+            recording_url = vapi_status.get("recordingUrl", interview_data.get("audioRecordingUrl"))
+
+            # Persist completion to Firestore when Vapi indicates the call ended/completed
+            try:
+                normalized = str(status_val).lower()
+                is_completed = (
+                    normalized == "completed" or
+                    normalized == "ended" or
+                    "completed" in normalized or
+                    "ended" in normalized
+                )
+                update_payload = {"updatedAt": datetime.utcnow().isoformat() + "Z"}
+                if duration_val is not None:
+                    update_payload["interviewDuration"] = duration_val
+                if transcript_url:
+                    update_payload["transcriptUrl"] = transcript_url
+                if recording_url:
+                    update_payload["audioRecordingUrl"] = recording_url
+                # Only flip to completed once
+                if is_completed and interview_data.get("status") != "completed":
+                    update_payload["status"] = "completed"
+                if len(update_payload) > 1:  # more than just updatedAt
+                    interview_ref.update(update_payload)
+            except Exception as persist_err:
+                print(f"Warning: failed to persist AI status for {interview_id}: {persist_err}")
+
             return AIInterviewStatusResponse(
                 aiSessionId=ai_session_id,
-                status=vapi_status.get("status", interview_data.get("status", "pending")),
-                duration=vapi_status.get("duration", interview_data.get("interviewDuration")),
-                transcriptUrl=vapi_status.get("transcriptUrl", interview_data.get("transcriptUrl")),
-                audioRecordingUrl=vapi_status.get("recordingUrl", interview_data.get("audioRecordingUrl"))
+                status=status_val,
+                duration=duration_val,
+                transcriptUrl=transcript_url,
+                audioRecordingUrl=recording_url
             )
         else:
             return AIInterviewStatusResponse(
@@ -1074,17 +1116,44 @@ async def get_ai_feedback(
         else:
             # Generate new AI feedback using Gemini
             ai_analysis_id = str(uuid.uuid4())
-            
+
             # Get interview transcript from Vapi
             vapi_call_id = interview_data.get("vapiCallId")
             if vapi_call_id:
                 transcript = await vapi_service.get_call_transcript(vapi_call_id)
             else:
                 transcript = "Mock interview transcript for analysis"
-            
+
             # Analyze with Gemini AI
             ai_feedback_data = await gemini_service.analyze_interview_transcript(transcript, interview_data)
-            
+
+            # Persist feedback to Firestore
+            try:
+                now = datetime.utcnow().isoformat() + "Z"
+                feedback_doc = {
+                    "id": ai_analysis_id,
+                    "interviewId": interview_id,
+                    "userId": uid,
+                    "overallScore": ai_feedback_data.get("overallScore", 75),
+                    "overallImpression": ai_feedback_data.get("overallImpression", "Analysis completed"),
+                    "keyInsights": ai_feedback_data.get("keyInsights", []),
+                    "confidenceScore": ai_feedback_data.get("confidenceScore", 0.8),
+                    "speechAnalysis": ai_feedback_data.get("speechAnalysis", {}),
+                    "transcriptAnalysis": ai_feedback_data.get("transcriptAnalysis", ""),
+                    "emotionalAnalysis": ai_feedback_data.get("emotionalAnalysis", {}),
+                    "finalVerdict": ai_feedback_data.get("recommendation", "Review recommended"),
+                    "createdAt": now,
+                    "aiAnalysisId": ai_analysis_id,
+                }
+                db.collection("feedback").document(ai_analysis_id).set(feedback_doc)
+                # Update interview summary fields
+                db.collection("interviews").document(interview_id).update({
+                    "overallScore": feedback_doc["overallScore"],
+                    "updatedAt": now,
+                })
+            except Exception as save_err:
+                print(f"Warning: failed to save AI feedback: {save_err}")
+
             # Structure the response
             return AIFeedbackResponse(
                 interviewId=interview_id,
@@ -1132,8 +1201,14 @@ async def stop_ai_interview(
             "updatedAt": now
         })
         
-        # TODO: Stop Vapi call
-        # await stop_vapi_call(interview_data.get("vapiCallId"))
+        # Attempt to stop Vapi call if present
+        vapi_call_id = interview_data.get("vapiCallId")
+        if vapi_call_id:
+            try:
+                await stop_vapi_call(vapi_call_id)
+            except Exception as stop_err:
+                # Log and continue; stopping the call shouldn't block user flow
+                print(f"Warning: Failed to stop Vapi call {vapi_call_id}: {stop_err}")
         
         return {"message": "AI interview stopped successfully"}
         
