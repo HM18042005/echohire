@@ -1,5 +1,6 @@
 # FastAPI backend with Firebase authentication and profile management
-# Updated: 2025-09-24 - Firebase service account key regenerated for security
+# Updated: 2025-09-24 19:07 - Firebase service account key regenerated for security
+# Deployment timestamp: 2025-09-24 19:07:53
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import firebase_admin
