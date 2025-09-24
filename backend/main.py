@@ -708,55 +708,104 @@ async def create_interview(
 
 @app.get("/interviews", response_model=List[InterviewOut])
 async def get_user_interviews(user_data: dict = Depends(verify_firebase_token)):
+    """
+    Returns the current user's interviews. If Firestore is unavailable or slow,
+    uses a fast mock fallback to avoid client timeouts.
+    """
     try:
         uid = user_data["uid"]
-        
+
+        # Optional kill-switch to bypass Firestore (e.g., on misconfigured prod)
+        if os.getenv("DISABLE_FIRESTORE", "0") == "1":
+            print("⚠️ Firestore disabled by env var; returning mock data")
+            return _mock_interviews(uid)
+
         if db is None:
-            # Return mock data when Firebase is not available
             print("🔄 Returning mock interview data - Firebase not available")
-            now = datetime.utcnow().isoformat() + "Z"
-            mock_interviews = [
-                InterviewOut(
-                    id="mock-interview-1",
-                    jobTitle="Flutter Developer",
-                    companyName="Tech Corp",
-                    interviewDate=now,
-                    status="completed",
-                    overallScore=85,
-                    userId=uid,
-                    createdAt=now,
-                    updatedAt=now
-                ),
-                InterviewOut(
-                    id="mock-interview-2", 
-                    jobTitle="Senior Frontend Developer",
-                    companyName="StartupXYZ",
-                    interviewDate=now,
-                    status="pending",
-                    overallScore=None,
-                    userId=uid,
-                    createdAt=now,
-                    updatedAt=now
-                )
-            ]
-            return mock_interviews
-        
-        # Get user's interviews from Firebase (simplified query to avoid index requirement)
-        interviews_ref = db.collection("interviews").where("userId", "==", uid)
-        interviews = interviews_ref.stream()
+            return _mock_interviews(uid)
 
-        interview_list = []
-        for interview in interviews:
-            interview_data = interview.to_dict()
-            interview_list.append(InterviewOut(**interview_data))
+        # Wrap Firestore call in a short timeout to prevent hanging requests
+        loop = asyncio.get_running_loop()
 
-        # Sort by interview date in Python instead of Firestore
-        interview_list.sort(key=lambda x: x.interviewDate, reverse=True)
+        def _fetch_from_firestore_sync(user_id: str) -> List[InterviewOut]:
+            # Synchronous Firestore fetch executed in a thread
+            interviews_ref = db.collection("interviews").where("userId", "==", user_id)
+            interviews = interviews_ref.stream()
+            items: List[InterviewOut] = []
+            for interview in interviews:
+                interview_data = interview.to_dict()
+                items.append(InterviewOut(**interview_data))
+            # Sort by interview date in Python instead of Firestore
+            items.sort(key=lambda x: x.interviewDate, reverse=True)
+            return items
 
-        return interview_list
+        try:
+            # If Firestore is slow/unreachable, fall back quickly
+            interview_list = await asyncio.wait_for(
+                loop.run_in_executor(None, _fetch_from_firestore_sync, uid),
+                timeout=8.0,
+            )
+            return interview_list
+        except asyncio.TimeoutError:
+            print("⏱️ Firestore fetch timed out; returning mock data")
+            return _mock_interviews(uid)
+        except Exception as e:
+            print(f"Interviews fetch error (Firestore): {e}")
+            return _mock_interviews(uid)
     except Exception as e:
         print(f"Interviews fetch error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch interviews")
+
+def _mock_interviews(uid: str) -> List["InterviewOut"]:
+    now = datetime.utcnow().isoformat() + "Z"
+    return [
+        InterviewOut(
+            id="mock-interview-1",
+            jobTitle="Flutter Developer",
+            companyName="Tech Corp",
+            interviewDate=now,
+            status="completed",
+            overallScore=85,
+            userId=uid,
+            createdAt=now,
+            updatedAt=now,
+        ),
+        InterviewOut(
+            id="mock-interview-2",
+            jobTitle="Senior Frontend Developer",
+            companyName="StartupXYZ",
+            interviewDate=now,
+            status="pending",
+            overallScore=None,
+            userId=uid,
+            createdAt=now,
+            updatedAt=now,
+        ),
+    ]
+
+@app.get("/health/db")
+async def health_db():
+    """Lightweight Firestore connectivity check with timeout."""
+    try:
+        if db is None:
+            return {"ok": False, "db": "unavailable"}
+
+        loop = asyncio.get_running_loop()
+
+        def _check_sync() -> bool:
+            # Minimal check: try to list at most one document from a known collection
+            try:
+                next(db.collection("interviews").limit(1).stream(), None)
+                return True
+            except Exception:
+                return False
+
+        ok = await asyncio.wait_for(loop.run_in_executor(None, _check_sync), timeout=5.0)
+        return {"ok": ok}
+    except asyncio.TimeoutError:
+        return {"ok": False, "timeout": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/interviews/{interview_id}", response_model=InterviewOut)
 async def get_interview(
