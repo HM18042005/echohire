@@ -241,6 +241,9 @@ class VapiInterviewService:
     def __init__(self):
         self.vapi_api_key = os.getenv("VAPI_API_KEY", "your-vapi-key-here")
         self.base_url = "https://api.vapi.ai"
+        # Optional webhook support
+        self.backend_public_url = os.getenv("BACKEND_PUBLIC_URL")  # e.g., https://api.example.com
+        self.webhook_secret = os.getenv("VAPI_WEBHOOK_SECRET")
         
         # Check if API key is configured
         if self.vapi_api_key == "your-vapi-key-here" or not self.vapi_api_key:
@@ -259,7 +262,7 @@ class VapiInterviewService:
                 }
                 
                 # Prepare Vapi call configuration
-                call_config = {
+                call_config: Dict[str, Any] = {
                     "assistant": {
                         "model": {
                             "provider": "openai",
@@ -285,37 +288,49 @@ class VapiInterviewService:
                             "voiceId": "professional_interviewer"
                         }
                     },
-                    "phoneNumberId": phone_number,
                     "customer": {
                         "name": interview_data.get('candidateName', 'Candidate')
+                    },
+                    # Include metadata to correlate webhook events
+                    "metadata": {
+                        "interviewId": interview_data.get('id') or interview_data.get('interviewId'),
+                        "userId": interview_data.get('userId'),
                     }
                 }
-                
+
+                # Attach webhook callback if configured
+                if self.backend_public_url:
+                    webhook_url = f"{self.backend_public_url.rstrip('/')}/webhooks/vapi"
+                    call_config["webhook"] = {"url": webhook_url}
+                    if self.webhook_secret:
+                        call_config["webhook"]["secret"] = self.webhook_secret
+                    # Some providers accept direct webhookUrl field; include both for compatibility
+                    call_config["webhookUrl"] = webhook_url
+
+                # Phone or web call selection
                 if phone_number:
-                    # Phone call
+                    call_config["phoneNumberId"] = phone_number
                     response = await client.post(
                         f"{self.base_url}/call/phone",
                         headers=headers,
                         json=call_config
                     )
                 else:
-                    # Web call
                     response = await client.post(
                         f"{self.base_url}/call/web",
                         headers=headers,
                         json=call_config
                     )
                 
-                if response.status_code == 201:
+                if response.status_code in (200, 201):
                     call_data = response.json()
                     return {
-                        "callId": call_data.get("id"),
-                        "status": "initiated",
+                        "callId": call_data.get("id") or call_data.get("callId"),
+                        "status": call_data.get("status", "initiated"),
                         "message": "Interview call started successfully",
                         "webCallUrl": call_data.get("webCallUrl") if not phone_number else None
                     }
                 else:
-                    print(f"Vapi API error: {response.status_code} - {response.text}")
                     raise Exception(f"Failed to start Vapi call: {response.status_code}")
             
         except Exception as e:
@@ -347,11 +362,11 @@ class VapiInterviewService:
                     call_data = response.json()
                     return {
                         "callId": call_id,
-                        "status": call_data.get("status", "unknown"),
-                        "duration": call_data.get("duration", 0),
-                        "transcriptUrl": call_data.get("transcriptUrl"),
-                        "recordingUrl": call_data.get("recordingUrl"),
-                        "endedReason": call_data.get("endedReason")
+                        "status": (call_data.get("status") or call_data.get("state") or "unknown"),
+                        "duration": call_data.get("duration") or call_data.get("callDuration") or 0,
+                        "transcriptUrl": call_data.get("transcriptUrl") or call_data.get("transcript_url"),
+                        "recordingUrl": call_data.get("recordingUrl") or call_data.get("recording_url"),
+                        "endedReason": call_data.get("endedReason") or call_data.get("end_reason")
                     }
                 else:
                     raise Exception(f"Failed to get call status: {response.status_code}")

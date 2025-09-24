@@ -261,7 +261,7 @@ class ApiService {
             body: json.encode(requestBody),
           )
           .timeout(
-            const Duration(seconds: 30),
+            const Duration(seconds: 60), // Increased for Render cold start
             onTimeout: () => throw NetworkException('Request timeout'),
           );
 
@@ -300,7 +300,7 @@ class ApiService {
       final response = await _client
           .get(url, headers: headers)
           .timeout(
-            const Duration(seconds: 15),
+            const Duration(seconds: 60), // Increased for Render cold start
             onTimeout: () => throw NetworkException('Request timeout'),
           );
 
@@ -351,9 +351,11 @@ class ApiService {
       final response = await _client
           .get(url, headers: headers)
           .timeout(
-            const Duration(seconds: 30), // Increased timeout for remote server
+            const Duration(
+              seconds: 60,
+            ), // Increased timeout for Render cold start
             onTimeout: () {
-              print('⏰ Request timeout after 30 seconds');
+              print('⏰ Request timeout after 60 seconds');
               throw NetworkException(
                 'Request timeout - server may be slow to respond',
               );
@@ -391,7 +393,9 @@ class ApiService {
       final response = await _client
           .get(url, headers: _getHeaders())
           .timeout(
-            const Duration(seconds: 30), // Increased timeout
+            const Duration(
+              seconds: 60,
+            ), // Increased timeout for Render cold start
             onTimeout: () {
               print('⏰ Health check timeout');
               throw NetworkException('Health check timeout');
@@ -431,7 +435,9 @@ class ApiService {
               if (phoneNumber != null) 'candidatePhoneNumber': phoneNumber,
             }),
           )
-          .timeout(const Duration(seconds: 30));
+          .timeout(
+            const Duration(seconds: 60),
+          ); // Increased for Render cold start
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -454,7 +460,9 @@ class ApiService {
     try {
       final response = await _client
           .get(url, headers: await _getAuthHeaders())
-          .timeout(const Duration(seconds: 10));
+          .timeout(
+            const Duration(seconds: 60),
+          ); // Increased for Render cold start
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -477,7 +485,9 @@ class ApiService {
     try {
       final response = await _client
           .get(url, headers: await _getAuthHeaders())
-          .timeout(const Duration(seconds: 15));
+          .timeout(
+            const Duration(seconds: 60),
+          ); // Increased for Render cold start
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -500,11 +510,105 @@ class ApiService {
     try {
       final response = await _client
           .post(url, headers: await _getAuthHeaders(), body: jsonEncode({}))
-          .timeout(const Duration(seconds: 10));
+          .timeout(
+            const Duration(seconds: 60),
+          ); // Increased for Render cold start
 
       return response.statusCode == 200;
     } catch (e) {
       return false;
+    }
+  }
+
+  // Workflow API methods
+
+  /// Starts the guided interview setup workflow
+  Future<Map<String, dynamic>> workflowStart() async {
+    final url = Uri.parse('$_baseUrl/workflow/start');
+    try {
+      final resp = await _client
+          .post(url, headers: await _getAuthHeaders())
+          .timeout(const Duration(seconds: 60));
+      if (resp.statusCode == 200) {
+        return jsonDecode(resp.body) as Map<String, dynamic>;
+      }
+      throw ApiException('Failed to start workflow: ${resp.statusCode}', resp.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error starting workflow: $e', 500);
+    }
+  }
+
+  /// Sends a message to the workflow and returns the AI response and session state
+  Future<Map<String, dynamic>> workflowMessage({
+    required String sessionId,
+    required String text,
+  }) async {
+    final url = Uri.parse('$_baseUrl/workflow/$sessionId/message');
+    try {
+      final resp = await _client
+          .post(
+            url,
+            headers: await _getAuthHeaders(),
+            body: jsonEncode({'text': text}),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (resp.statusCode == 200) {
+        return jsonDecode(resp.body) as Map<String, dynamic>;
+      }
+      throw ApiException('Failed to process workflow message: ${resp.statusCode}', resp.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error sending workflow message: $e', 500);
+    }
+  }
+
+  /// Gets the workflow summary (preferences and questions)
+  Future<Map<String, dynamic>> workflowSummary(String sessionId) async {
+    final url = Uri.parse('$_baseUrl/workflow/$sessionId/summary');
+    try {
+      final resp = await _client
+          .get(url, headers: await _getAuthHeaders())
+          .timeout(const Duration(seconds: 60));
+      if (resp.statusCode == 200) {
+        return jsonDecode(resp.body) as Map<String, dynamic>;
+      }
+      throw ApiException('Failed to fetch workflow summary: ${resp.statusCode}', resp.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error fetching workflow summary: $e', 500);
+    }
+  }
+
+  /// Finalizes the workflow by creating the interview and optionally auto-starting Vapi
+  Future<Map<String, dynamic>> workflowFinalize({
+    required String sessionId,
+    String? companyName,
+    String? interviewDateIso,
+    bool autoStart = true,
+  }) async {
+    final url = Uri.parse('$_baseUrl/workflow/$sessionId/finalize');
+    try {
+      final body = <String, dynamic>{
+        'autoStart': autoStart,
+      };
+      if (companyName != null) body['companyName'] = companyName;
+      if (interviewDateIso != null) body['interviewDate'] = interviewDateIso;
+
+      final resp = await _client
+          .post(
+            url,
+            headers: await _getAuthHeaders(),
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 60));
+      if (resp.statusCode == 200) {
+        return jsonDecode(resp.body) as Map<String, dynamic>;
+      }
+      throw ApiException('Failed to finalize workflow: ${resp.statusCode}', resp.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Network error finalizing workflow: $e', 500);
     }
   }
 
@@ -522,7 +626,7 @@ class ApiService {
             body: json.encode(interviewData),
           )
           .timeout(
-            const Duration(seconds: 30),
+            const Duration(seconds: 60), // Increased for Render cold start
             onTimeout: () => throw Exception('Request timeout'),
           );
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -554,7 +658,7 @@ class ApiService {
       final response = await _client
           .get(url, headers: await _getAuthHeaders())
           .timeout(
-            const Duration(seconds: 30),
+            const Duration(seconds: 60), // Increased for Render cold start
             onTimeout: () => throw Exception('Request timeout'),
           );
 

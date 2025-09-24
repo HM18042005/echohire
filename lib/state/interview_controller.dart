@@ -36,7 +36,7 @@ class InterviewController extends StateNotifier<InterviewState> {
     try {
       // Fetch persisted interviews (InterviewOut list) for authenticated user
       final raw = await ApiServiceSingleton.instance.getInterviews().timeout(
-        const Duration(seconds: 12),
+        const Duration(seconds: 60), // Increased for Render cold start
       );
 
       final interviews = raw.map((json) {

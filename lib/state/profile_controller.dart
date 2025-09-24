@@ -34,7 +34,7 @@ class ProfileController extends StateNotifier<ProfileState> {
 
     try {
       final profileData = await _apiClient.getProfile().timeout(
-        const Duration(seconds: 10),
+        const Duration(seconds: 60), // Increased for Render cold start
       );
       final profile = UserProfile.fromJson(profileData);
       state = state.copyWith(profile: profile, isLoading: false);

@@ -5,13 +5,15 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from pydantic import BaseModel, Field, field_validator
 import os
 import uuid
 import asyncio
 import json
 from dotenv import load_dotenv
+import hmac
+import hashlib
 
 # Load environment variables from .env file
 load_dotenv()
@@ -21,6 +23,7 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import httpx
 from ai_services import gemini_service, vapi_service
+from vapi_workflows import InterviewSetupAssistant
 
 # Helper to stop Vapi call
 async def stop_vapi_call(call_id: str) -> bool:
@@ -80,6 +83,13 @@ except Exception as e:
 genai.configure(api_key=os.getenv("GOOGLE_AI_API_KEY", "your-gemini-api-key-here"))
 
 app = FastAPI(title="EchoHire API", version="1.0.0")
+
+# Environment toggles
+AUTO_GENERATE_AI_FEEDBACK = os.getenv("AUTO_GENERATE_AI_FEEDBACK", "0") == "1"
+VAPI_WEBHOOK_SECRET = os.getenv("VAPI_WEBHOOK_SECRET", "")
+
+# Interview setup workflow assistant (Gemini-powered)
+workflow_assistant = InterviewSetupAssistant(os.getenv("GOOGLE_AI_API_KEY", ""))
 
 # Pydantic Models
 class ProfileIn(BaseModel):
@@ -293,6 +303,128 @@ async def verify_firebase_token(authorization: str = Header(...)):
 @app.get("/health")
 async def health_check():
     return {"ok": True}
+
+# Interview Setup Workflow Endpoints
+class WorkflowMessage(BaseModel):
+    text: str = Field(..., min_length=1)
+
+class WorkflowFinalizeIn(BaseModel):
+    companyName: Optional[str] = None
+    interviewDate: Optional[str] = None  # ISO datetime string
+    autoStart: bool = True
+
+@app.post("/workflow/start")
+async def workflow_start(user_data: dict = Depends(verify_firebase_token)):
+    try:
+        session_id = str(uuid.uuid4())
+        # Kick off with initial greeting by sending empty input
+        init = await workflow_assistant.process_user_input(session_id, "")
+        return {
+            "sessionId": session_id,
+            "ai_response": init.get("ai_response"),
+            "session_state": init.get("session_state"),
+        }
+    except Exception as e:
+        print(f"Workflow start error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start workflow")
+
+@app.post("/workflow/{session_id}/message")
+async def workflow_message(session_id: str, payload: WorkflowMessage, user_data: dict = Depends(verify_firebase_token)):
+    try:
+        resp = await workflow_assistant.process_user_input(session_id, payload.text)
+        return resp
+    except Exception as e:
+        print(f"Workflow message error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process message")
+
+@app.get("/workflow/{session_id}/summary")
+async def workflow_summary(session_id: str, user_data: dict = Depends(verify_firebase_token)):
+    try:
+        summary = workflow_assistant.get_session_summary(session_id)
+        if "error" in summary:
+            raise HTTPException(status_code=404, detail=summary["error"])
+        return summary
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Workflow summary error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch summary")
+
+@app.post("/workflow/{session_id}/finalize")
+async def workflow_finalize(session_id: str, payload: WorkflowFinalizeIn, user_data: dict = Depends(verify_firebase_token)):
+    """
+    Create an interview from collected preferences and optionally start the Vapi AI assistant.
+    Returns the interview record and (if autoStart) the Vapi start response.
+    """
+    try:
+        uid = user_data["uid"]
+        summary = workflow_assistant.get_session_summary(session_id)
+        if "error" in summary:
+            raise HTTPException(status_code=404, detail=summary["error"])
+
+        prefs = summary.get("preferences", {})
+        questions = summary.get("questions", [])
+
+        # Build interview record
+        interview_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat() + "Z"
+        interview_doc = {
+            "id": interview_id,
+            "jobTitle": prefs.get("job_role") or "Interview",
+            "companyName": payload.companyName,
+            "interviewDate": payload.interviewDate or now,
+            "status": "scheduled" if not payload.autoStart else "inProgress",
+            "overallScore": None,
+            "userId": uid,
+            "createdAt": now,
+            "updatedAt": now,
+            # Extra fields captured by the workflow
+            "type": (prefs.get("interview_type") or "").lower(),
+            "level": (prefs.get("experience_level") or "").lower(),
+            "questions": questions,
+        }
+
+        if db is not None:
+            db.collection("interviews").document(interview_id).set(interview_doc)
+
+        start_resp = None
+        if payload.autoStart:
+            # Start Vapi AI interview immediately
+            try:
+                start_resp = await vapi_service.start_interview_call({
+                    **interview_doc,
+                    "candidateName": user_data.get("name", "Candidate"),
+                })
+                # Persist Vapi metadata
+                updates = {
+                    "aiSessionId": str(uuid.uuid4()),
+                    "vapiCallId": start_resp.get("callId"),
+                    "webCallUrl": start_resp.get("webCallUrl"),
+                    "status": "inProgress",
+                    "updatedAt": datetime.utcnow().isoformat() + "Z",
+                }
+                interview_doc.update(updates)
+                if db is not None:
+                    db.collection("interviews").document(interview_id).update(updates)
+            except Exception as e:
+                print(f"Finalize autoStart error: {e}")
+                # Keep interview scheduled if start failed
+                interview_doc["status"] = "scheduled"
+                if db is not None:
+                    db.collection("interviews").document(interview_id).update({
+                        "status": "scheduled",
+                        "updatedAt": datetime.utcnow().isoformat() + "Z",
+                    })
+
+        return {
+            "interview": interview_doc,
+            "start": start_resp,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Workflow finalize error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to finalize workflow")
 
 # AI Interview Generation Endpoint
 @app.post("/api/generate-interview", response_model=InterviewSessionOut)
@@ -798,6 +930,14 @@ def _mock_interviews(uid: str) -> List["InterviewOut"]:
         ),
     ]
 
+@app.get("/health/vapi")
+async def health_vapi():
+    """Report Vapi configuration status."""
+    try:
+        return {"configured": getattr(vapi_service, "is_configured", False)}
+    except Exception as e:
+        return {"configured": False, "error": str(e)}
+
 @app.get("/health/db")
 async def health_db():
     """Lightweight Firestore connectivity check with timeout."""
@@ -1293,6 +1433,136 @@ async def stop_ai_interview(
     except Exception as e:
         print(f"AI interview stop error: {e}")
         raise HTTPException(status_code=500, detail="Failed to stop AI interview")
+
+# Webhook endpoint to receive Vapi call events
+@app.post("/webhooks/vapi")
+async def vapi_webhook(request: Request):
+    try:
+        raw_body = await request.body()
+        try:
+            event = json.loads(raw_body.decode("utf-8"))
+        except Exception:
+            event = await request.json()
+
+        # Optional signature verification if provider sends one
+        provided_sig = request.headers.get("X-Signature") or request.headers.get("X-Vapi-Signature")
+        if VAPI_WEBHOOK_SECRET and provided_sig:
+            try:
+                computed = hmac.new(VAPI_WEBHOOK_SECRET.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(computed, provided_sig):
+                    return {"ok": False, "error": "invalid signature"}
+            except Exception as e:
+                print(f"Webhook signature verification error: {e}")
+                # Continue but mark unverified
+
+        # Extract identifiers
+        call_id = event.get("id") or event.get("callId") or event.get("call_id")
+        status = (event.get("status") or event.get("state") or "").lower()
+        duration = event.get("duration") or event.get("callDuration")
+        transcript_url = event.get("transcriptUrl") or event.get("transcript_url")
+        recording_url = event.get("recordingUrl") or event.get("recording_url")
+
+        # Determine interview id either from metadata or by lookup
+        interview_id = None
+        meta = event.get("metadata") or {}
+        interview_id = meta.get("interviewId") or meta.get("interview_id")
+
+        interview_ref = None
+        interview_data = None
+        if db is not None:
+            if interview_id:
+                interview_ref = db.collection("interviews").document(interview_id)
+                snapshot = interview_ref.get()
+                if snapshot.exists:
+                    interview_data = snapshot.to_dict()
+            # If not found via metadata, try to find by vapiCallId
+            if interview_data is None and call_id:
+                try:
+                    candidates = db.collection("interviews").where("vapiCallId", "==", call_id).stream()
+                    for doc in candidates:
+                        interview_ref = db.collection("interviews").document(doc.id)
+                        interview_data = doc.to_dict()
+                        interview_id = doc.id
+                        break
+                except Exception as e:
+                    print(f"Vapi webhook lookup error: {e}")
+
+        # Persist updates if we have a document reference
+        if interview_ref is not None:
+            update_payload = {"updatedAt": datetime.utcnow().isoformat() + "Z"}
+            if status:
+                # normalize into our domain status
+                normalized = "inProgress"
+                if "completed" in status or "ended" in status or status == "completed":
+                    normalized = "completed"
+                elif "failed" in status or status == "failed":
+                    normalized = "failed"
+                update_payload["status"] = normalized
+            if duration is not None:
+                update_payload["interviewDuration"] = duration
+            if transcript_url:
+                update_payload["transcriptUrl"] = transcript_url
+            if recording_url:
+                update_payload["audioRecordingUrl"] = recording_url
+            if call_id and not interview_data.get("vapiCallId"):
+                update_payload["vapiCallId"] = call_id
+            try:
+                interview_ref.update(update_payload)
+            except Exception as e:
+                print(f"Failed to update interview from webhook: {e}")
+
+            # Optionally auto-generate AI feedback on completion
+            try:
+                if AUTO_GENERATE_AI_FEEDBACK and update_payload.get("status") == "completed":
+                    # Avoid duplicate work if feedback already exists
+                    feedback_query = db.collection("feedback").where("interviewId", "==", interview_id).limit(1).stream()
+                    if not list(feedback_query):
+                        # Fetch transcript (prefer firestore transcriptUrl, else from vapi)
+                        transcript_text = None
+                        turl = update_payload.get("transcriptUrl") or interview_data.get("transcriptUrl")
+                        if turl:
+                            try:
+                                async with httpx.AsyncClient() as client:
+                                    t_resp = await client.get(turl, timeout=20)
+                                    if t_resp.status_code == 200:
+                                        transcript_text = t_resp.text
+                            except Exception:
+                                pass
+                        if transcript_text is None and call_id:
+                            try:
+                                transcript_text = await vapi_service.get_call_transcript(call_id)
+                            except Exception:
+                                transcript_text = ""
+                        ai_analysis_id = str(uuid.uuid4())
+                        ai_feedback_data = await gemini_service.analyze_interview_transcript(transcript_text or "", interview_data or {})
+                        now = datetime.utcnow().isoformat() + "Z"
+                        feedback_doc = {
+                            "id": ai_analysis_id,
+                            "interviewId": interview_id,
+                            "userId": interview_data.get("userId") if interview_data else "",
+                            "overallScore": ai_feedback_data.get("overallScore", 75),
+                            "overallImpression": ai_feedback_data.get("overallImpression", "Analysis completed"),
+                            "keyInsights": ai_feedback_data.get("keyInsights", []),
+                            "confidenceScore": ai_feedback_data.get("confidenceScore", 0.8),
+                            "speechAnalysis": ai_feedback_data.get("speechAnalysis", {}),
+                            "transcriptAnalysis": ai_feedback_data.get("transcriptAnalysis", ""),
+                            "emotionalAnalysis": ai_feedback_data.get("emotionalAnalysis", {}),
+                            "finalVerdict": ai_feedback_data.get("recommendation", "Review recommended"),
+                            "createdAt": now,
+                            "aiAnalysisId": ai_analysis_id,
+                        }
+                        db.collection("feedback").document(ai_analysis_id).set(feedback_doc)
+                        db.collection("interviews").document(interview_id).update({
+                            "overallScore": feedback_doc["overallScore"],
+                            "updatedAt": now,
+                        })
+            except Exception as e:
+                print(f"Auto feedback generation failed: {e}")
+
+        return {"ok": True}
+    except Exception as e:
+        print(f"Webhook processing error: {e}")
+        return {"ok": False, "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

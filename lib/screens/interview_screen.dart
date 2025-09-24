@@ -4,6 +4,7 @@ import '../state/interview_controller.dart';
 import '../models/interview.dart';
 import 'new_interview_screen.dart';
 import 'interview_detail_screen.dart';
+import 'workflow_setup_screen.dart';
 
 /// InterviewScreen displays all user interviews with filtering options
 class InterviewScreen extends ConsumerStatefulWidget {
@@ -68,9 +69,9 @@ class _InterviewScreenState extends ConsumerState<InterviewScreen> {
       ),
       body: _buildBody(interviewState),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _navigateToNewInterview(),
+        onPressed: _showCreateOptions,
         icon: const Icon(Icons.add),
-        label: const Text('New Interview'),
+        label: const Text('Create'),
         backgroundColor: Colors.blue,
       ),
     );
@@ -264,6 +265,59 @@ class _InterviewScreenState extends ConsumerState<InterviewScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => InterviewDetailScreen(interview: interview),
+      ),
+    );
+  }
+
+  void _showCreateOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Create Interview',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.edit_calendar),
+                title: const Text('Manual Setup (Form)'),
+                subtitle: const Text('Fill in job, company, date'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _navigateToNewInterview();
+                },
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                leading: const Icon(Icons.auto_awesome),
+                title: const Text('Guided Setup (AI)'),
+                subtitle: const Text('Let AI collect details and start interview'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const WorkflowSetupScreen(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

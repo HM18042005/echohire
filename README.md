@@ -11,6 +11,65 @@
 
 </div>
 
+## 📌 Project Status (2025-09-24)
+
+### ✅ What’s Completed
+- Backend (FastAPI)
+  - Firebase ID token verification with mock fallbacks in dev and robust Firestore timeouts.
+  - Interviews API: create/list/get; health checks (/health, /health/db, /health/vapi).
+  - AI endpoints: start AI interview, status polling, AI feedback generation (Gemini), stop AI.
+  - Vapi integration: start phone/web calls, persist vapiCallId/webCallUrl/aiSessionId; transcript and recording retrieval; webhook at /webhooks/vapi with optional HMAC verification (VAPI_WEBHOOK_SECRET).
+  - Optional auto-feedback (AUTO_GENERATE_AI_FEEDBACK=1) to analyze transcripts with Gemini and persist feedback/overallScore.
+- Flutter app (matching dark/blue theme)
+  - Auth flow, Home dashboard, Interviews tab with filters, manual NewInterview form, Interview detail and results.
+  - AIInterviewScreen: opens webCallUrl in browser, polls status, stores transcript to Firestore on completion, stop-ai on dispose.
+  - New Guided Setup (AI) flow: WorkflowSetupScreen chats to collect role/type/level; finalize creates an Interview and auto-starts Vapi; navigates to AIInterviewScreen.
+  - API client methods for workflow: start, message, summary, finalize.
+- Infrastructure/config
+  - Env-driven config across app and backend; emulator-safe BASE_URL; WARP.md for repo guidance.
+
+### 🔜 What’s Remaining
+- Voice UX
+  - Optional in-app audio streaming to Vapi (instead of webCallUrl) if required by product scope.
+- Webhooks and reliability
+  - Confirm exact Vapi signature header; add idempotency keys and replay protection; structured logging with request IDs.
+  - Retry/backoff and circuit-breakers around Vapi/Gemini/httpx calls; tune timeouts.
+- Observability and QA
+  - E2E tests for workflow→finalize→start Vapi; contract tests with a Vapi mock; load tests for Firestore-heavy paths.
+  - Error monitoring (e.g., Sentry) and metrics dashboards; trace spans over key endpoints.
+- CI/CD and deployment hardening
+  - GitHub Actions pipelines (lint/test/build for Flutter and Python; artifacts; app bundle/apk). 
+  - Backend containerization and deployment (e.g., Cloud Run/Render) behind HTTPS; strict CORS; secrets from env.
+- Security and data
+  - Firestore security rules review; rate limiting and CORS tightening; PII handling; cleanup policies for transcripts/recordings.
+- UX polish
+  - Subscribe to Firestore interview doc in AIInterviewScreen (in addition to polling) to reflect webhook updates faster.
+  - Better failure messaging and recovery (retry join, degraded modes), offline fallbacks where useful.
+- Platform
+  - iOS support if needed; store permissions and entitlements; build/test lanes.
+
+### 🧭 How To Finish (Suggested Steps)
+1) Production configuration
+   - Ensure these env vars are set in the backend runtime: VAPI_API_KEY, GOOGLE_AI_API_KEY, FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_JSON_BASE64, BACKEND_PUBLIC_URL (https), VAPI_WEBHOOK_SECRET, AUTO_GENERATE_AI_FEEDBACK=1 (optional).
+   - Lock down CORS to your app origins; set DEBUG=false.
+2) Deploy backend
+   - Containerize FastAPI and deploy behind HTTPS (e.g., Cloud Run). Point BACKEND_PUBLIC_URL to the public base URL.
+   - Configure Vapi to call BACKEND_PUBLIC_URL/webhooks/vapi with the shared secret.
+3) Wire observability and tests
+   - Add Sentry/Stackdriver logging; write E2E covering workflow→finalize→Vapi start→webhook completion→feedback.
+   - Add retry/backoff wrappers (httpx) and unit tests for error paths.
+4) App build and release
+   - Set .env.production BASE_URL=https://your-backend and ENABLE_MOCKS=false.
+   - Android: flutter build appbundle --release --dart-define=ENV=prod (ensure signing config set). iOS: set up if required.
+5) Optional enhancements
+   - In-app audio streaming to Vapi and Firestore listeners for near-real-time UI.
+
+For more details and code references, see this repository’s docs and sources:
+- WARP.md (agent rules and common commands)
+- backend/main.py, backend/ai_services.py, backend/vapi_workflows.py (API, Vapi, workflow)
+- lib/screens/* (Flutter UI), lib/services/api_service.dart (API client), lib/config.dart (env)
+- SETUP_GUIDE.md, PHASE_1_COMPLETE.md
+
 ## 🚀 Overview
 
 EchoHire is a comprehensive AI-powered interview platform that combines Flutter mobile technology with advanced AI services to revolutionize the interview process. The platform features live AI-conducted interviews, real-time transcript analysis, and automated candidate evaluation.
