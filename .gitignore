@@ -66,3 +66,15 @@ __pycache__/
 vapi.exe
 vapi-cli.tar.gz
 man/
+
+# Environment files with sensitive data
+.env.local
+.env.production
+.env.staging
+.env.*.local
+
+# Additional security files
+*.pem
+*.p12
+*.key
+firebase-service-account*.json
