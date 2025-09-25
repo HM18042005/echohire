@@ -44,6 +44,7 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
       .badge { padding: 8px 14px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); }
       button { padding: 12px 22px; background: #3b82f6; color: #fff; border: none; border-radius: 12px; font-size: 16px; cursor: pointer; }
       button:disabled { background: #666; }
+      .hidden { display: none; }
     </style>
   </head>
   <body>
@@ -78,6 +79,7 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
               const s = document.createElement('script');
               s.src = src;
               s.async = true;
+              s.crossOrigin = 'anonymous';
               s.onload = () => resolve();
               s.onerror = (e) => reject(e);
               document.head.appendChild(s);
@@ -86,19 +88,15 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
 
           updateStatus('Loading Vapi SDK…');
           const cdnBases = [
-            'https://cdn.vapi.ai/sdk', // canonical CDN
             'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest',
-            'https://unpkg.com/@vapi-ai/web@latest',
             'https://fastly.jsdelivr.net/npm/@vapi-ai/web@latest',
+            'https://unpkg.com/@vapi-ai/web@latest',
           ];
           const paths = [
-            '/vapi.min.js', // preferred UMD filename
-            '/dist/vapi.min.js', // jsdelivr/unpkg path
-            // additional legacy/alt names as last resorts
-            '/dist/index.umd.min.js',
-            '/dist/index.umd.js',
-            '/dist/web.umd.min.js',
-            '/dist/web.umd.js',
+            // The official dist contains vapi.js (no minified UMD published)
+            '/dist/vapi.js',
+            // additional alt names as last resorts (in case packaging changes)
+            '/vapi.js',
           ];
           for (let i = 0; !window.Vapi && i < cdnBases.length; i++) {
             for (let j = 0; !window.Vapi && j < paths.length; j++) {
@@ -113,8 +111,58 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           }
 
           if (!window.Vapi) {
+            // Fallback: try dynamic ESM imports when the CDN serves non-UMD builds
+            updateStatus('Falling back to ESM import…');
+            const esmCandidates = [
+              'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/+esm',
+              'https://unpkg.com/@vapi-ai/web@latest?module',
+              'https://esm.sh/@vapi-ai/web@latest',
+            ];
+            let esmModule = null;
+            for (let k = 0; !esmModule && k < esmCandidates.length; k++) {
+              const url = esmCandidates[k];
+              try {
+                updateStatus('Importing ESM from: ' + url);
+                // Dynamic import may fail on very old WebViews; try-catch continues to next candidate
+                // @ts-ignore
+                esmModule = await import(url);
+              } catch (e) {
+                // continue
+              }
+            }
+            if (esmModule && (esmModule.default || esmModule.Vapi)) {
+              // Attach constructor for uniform handling below
+              window.Vapi = esmModule.default || esmModule.Vapi;
+            }
+            // As a last resort, inject a module script that imports and binds to window.Vapi
+            if (!window.Vapi) {
+              for (let m = 0; !window.Vapi && m < esmCandidates.length; m++) {
+                const url = esmCandidates[m];
+                try {
+                  updateStatus('Injecting module script from: ' + url);
+                  await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.type = 'module';
+                    script.crossOrigin = 'anonymous';
+                    script.textContent = "import * as Mod from '" + url + "'; window.Vapi = Mod.default || Mod.Vapi; window.dispatchEvent(new Event('VapiReady'));";
+                    const onReady = () => { window.removeEventListener('VapiReady', onReady); resolve(); };
+                    window.addEventListener('VapiReady', onReady);
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                  });
+                } catch (e) {
+                  // continue
+                }
+              }
+            }
+          }
+
+          if (!window.Vapi) {
             throw new Error('Vapi SDK failed to load');
           }
+
+          // Helpful: log UA to Flutter for debugging
+          try { updateStatus('UA: ' + navigator.userAgent); } catch (_) {}
 
           updateStatus('Creating Vapi client…');
           let client;
