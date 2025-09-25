@@ -4,6 +4,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:echohire/services/api_service.dart';
+import 'package:echohire/config.dart';
 
 class VapiWebCallPage extends StatefulWidget {
   final String publicKey;
@@ -367,7 +368,23 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
     if (!status.isGranted) {
       // Still load the page; SDK will likely fail to capture mic until granted
     }
-    await _controller.loadHtmlString(_html);
+    // Prefer loading the backend-hosted page to ensure a proper HTTPS origin for WebRTC
+    try {
+      final uri = Uri.parse(AppConfig.baseUrl).replace(
+        path: '/client/vapi-web',
+        queryParameters: {
+          'publicKey': widget.publicKey,
+          'assistantId': widget.assistantId,
+          'interviewId': widget.interviewId,
+          // Pass raw JSON; Uri will encode it and the page will decode+parse
+          'metadata': jsonEncode(widget.metadata),
+        },
+      );
+      await _controller.loadRequest(uri);
+    } catch (e) {
+      // Fallback: inline HTML (may hit null-origin/CORS in some environments)
+      await _controller.loadHtmlString(_html);
+    }
   }
 
   @override

@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 import os
 import uuid
@@ -390,6 +391,148 @@ async def verify_firebase_token(authorization: str = Header(...)):
 @app.get("/health")
 async def health_check():
     return {"ok": True}
+
+# Client-facing Vapi WebView page to enable a proper HTTPS origin in WebView
+@app.get("/client/vapi-web", response_class=HTMLResponse)
+async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", interviewId: Optional[str] = None):
+        """Serve a minimal Vapi Web SDK page over HTTPS to avoid null-origin/CORS issues in Android WebView.
+
+        Query params expected on the URL:
+        - publicKey: Vapi public key
+        - assistantId: Vapi assistant ID to start the call
+        - metadata: URL-encoded JSON string (optional)
+        - interviewId: optional (for logging only)
+        """
+        # Basic guardrails (no secrets here beyond public key)
+        try:
+                _ = json.loads(metadata) if metadata else {}
+        except Exception:
+                metadata = "{}"
+
+        html = """<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset=\"utf-8\" />
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+        <title>EchoHire • AI Interview</title>
+        <style>
+            html, body { margin:0; padding:0; height:100%; background:#0b1021; color:#fff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; }
+            #app { display:flex; align-items:center; justify-content:center; height:100%; flex-direction:column; gap:20px; text-align:center; padding:20px; }
+            .badge { padding:8px 14px; border-radius:999px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); }
+            button { padding:12px 22px; background:#3b82f6; color:#fff; border:none; border-radius:12px; font-size:16px; cursor:pointer; }
+            button:disabled { background:#666; }
+            .hidden { display:none; }
+        </style>
+    </head>
+    <body>
+        <div id=\"app\">
+            <div style=\"font-size:18px; opacity:.9\">EchoHire • AI Interview</div>
+            <div id=\"status\" class=\"badge\">Preparing interview…</div>
+            <button id=\"endBtn\" class=\"hidden\" disabled>End Interview</button>
+        </div>
+        <script>
+            (async () => {
+                const statusEl = document.getElementById('status');
+                const endBtn = document.getElementById('endBtn');
+                function updateStatus(msg, showBtn=false) {
+                    statusEl.textContent = msg;
+                    if (showBtn) { endBtn.style.display='inline-block'; endBtn.disabled=false; }
+                    try { if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) statusUpdate.postMessage(msg); } catch(_){}
+                }
+
+                // Global error hooks
+                window.onerror = function(message, source, lineno, colno, error) {
+                    try {
+                        const payload = { type:'window.onerror', message, source, lineno, colno, error: error && { name:error.name, message:error.message, stack:error.stack } };
+                        if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) statusUpdate.postMessage('[VapiWebView] GlobalError: ' + JSON.stringify(payload));
+                    } catch(_){}
+                };
+                window.addEventListener('unhandledrejection', function(ev) {
+                    try {
+                        const r = ev && (ev.reason || ev.detail || ev.message || ev);
+                        if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) statusUpdate.postMessage('[VapiWebView] UnhandledRejection: ' + (typeof r === 'object' ? JSON.stringify(r) : String(r)));
+                    } catch(_){}
+                });
+
+                try {
+                    const qs = new URLSearchParams(window.location.search);
+                    const publicKey = qs.get('publicKey') || '';
+                    const assistantId = qs.get('assistantId') || '';
+                    const interviewId = qs.get('interviewId') || '';
+                    let metadata = {};
+                    try { metadata = JSON.parse(decodeURIComponent(qs.get('metadata') || '%7B%7D')); } catch(_e) { metadata = {}; }
+
+                    updateStatus('UA: ' + navigator.userAgent);
+                    updateStatus('Loading Vapi SDK (ESM)…');
+
+                    // ESM-first loader to avoid UMD/CommonJS issues
+                    let Mod = null;
+                    const esmCandidates = [
+                        'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/+esm',
+                        'https://esm.sh/@vapi-ai/web@latest'
+                    ];
+                    for (let i=0; !Mod && i<esmCandidates.length; i++) {
+                        const url = esmCandidates[i];
+                        try { updateStatus('Importing ESM from: ' + url); Mod = await import(url); } catch(e) { /* try next */ }
+                    }
+                    if (!Mod) throw new Error('Failed to import Vapi ESM');
+                    const VapiCtor = Mod.default || Mod.Vapi;
+                    if (!VapiCtor) throw new Error('Vapi constructor missing in module');
+
+                    updateStatus('Creating Vapi client…');
+                    let client = null; try { client = new VapiCtor(publicKey); } catch(_) { client = new VapiCtor({ publicKey }); }
+
+                    const logError = (label, e) => {
+                        try {
+                            const msg = (e && e.message) ? e.message : (typeof e === 'object' ? JSON.stringify(e) : String(e));
+                            updateStatus(label + ': ' + msg, true);
+                            if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) {
+                                const details = { label, name: e && e.name, message: e && e.message, stack: e && e.stack, code: e && (e.code || e.error || e.type) };
+                                statusUpdate.postMessage('[VapiWebView] Error: ' + JSON.stringify(details));
+                            }
+                        } catch(_e){}
+                    };
+                    client.on('error', (e) => logError('Error', e));
+                    try { client.on('call-failed', (e) => logError('Call failed', e)); } catch(_e){}
+                    try { client.on('daily-error', (e) => logError('Daily error', e)); } catch(_e){}
+
+                    // CallId discovery
+                    const tryExtractId = (obj) => {
+                        if (!obj) return null; const keys=['id','callId','call_id','uuid','roomId','roomName'];
+                        for (const k of keys) { if (obj && typeof obj[k]==='string' && obj[k]) return obj[k]; }
+                        if (obj.call) { for (const k of keys) { if (obj.call && typeof obj.call[k]==='string' && obj.call[k]) return obj.call[k]; } }
+                        if (obj.data) { for (const k of keys) { if (obj.data && typeof obj.data[k]==='string' && obj.data[k]) return obj.data[k]; } }
+                        return null;
+                    };
+                    let sentCallId=false; const maybeSendCallId=(src,payload)=>{
+                        if (sentCallId) return; const cid = tryExtractId(payload) || tryExtractId(client) || tryExtractId((client && client.call)||null);
+                        if (cid && typeof vapiCallId !== 'undefined' && vapiCallId.postMessage) {
+                            try { vapiCallId.postMessage(JSON.stringify({ callId: cid, assistantId, metadata })); sentCallId=true; updateStatus('Call ID captured from '+src+': '+cid, true); } catch(_e){}
+                        }
+                    };
+
+                    updateStatus('Starting interview…');
+                    let call=null; try { call = await client.start(assistantId); } catch(e) { logError('Start failed', e); throw e; }
+                    try { updateStatus('Start returned: ' + JSON.stringify(call)); } catch(_e){}
+                    const immediateId = tryExtractId(call);
+                    updateStatus('Interview started (ID: ' + (immediateId || 'unknown') + ')', true);
+                    maybeSendCallId('start()', call);
+
+                    client.on('call-start', (evt) => { updateStatus('Interview in progress…', true); try { updateStatus('call-start evt: ' + JSON.stringify(evt)); } catch(_e){} maybeSendCallId('call-start', evt); });
+                    client.on('speech-start', () => updateStatus('Listening…', true));
+                    client.on('speech-end', () => updateStatus('Processing your response…', true));
+                    client.on('call-end', () => { updateStatus('Interview completed.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('done'); });
+
+                    endBtn.onclick = async () => {
+                        try { endBtn.disabled=true; updateStatus('Ending…'); await client.stop(); updateStatus('Ended.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('ended'); }
+                        catch(e) { logError('Failed to end', e); endBtn.disabled=false; }
+                    };
+                } catch(e) { updateStatus('Fatal: ' + (e && e.message ? e.message : e), true); }
+            })();
+        </script>
+    </body>
+</html>"""
+        return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
 
 # Interview Setup Workflow Endpoints
 class WorkflowMessage(BaseModel):
