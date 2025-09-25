@@ -190,7 +190,7 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           updateStatus('Creating Vapi client…');
           let client;
           let VapiCtor = null;
-          const VapiMod = window.Vapi;
+          const VapiMod = window.Vapi || window.vapi;
           if (typeof VapiMod === 'function') VapiCtor = VapiMod;
           else if (VapiMod && typeof VapiMod.default === 'function') VapiCtor = VapiMod.default;
           else if (VapiMod && typeof VapiMod.Vapi === 'function') VapiCtor = VapiMod.Vapi;
@@ -201,7 +201,24 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
               updateStatus('Using factory createClient(..)');
               try { client = factory({ publicKey }); } catch (e) { logError('Factory createClient failed', e); }
             }
-            if (!client) throw new Error('Vapi constructor not found after SDK load');
+            if (!client) {
+              // scan window for any object exposing createClient
+              try {
+                const names = Object.getOwnPropertyNames(window).slice(0, 5000);
+                let found = null;
+                for (const key of names) {
+                  const val = window[key];
+                  if (val && typeof val.createClient === 'function') { found = val.createClient; break; }
+                  if (val && val.default && typeof val.default.createClient === 'function') { found = val.default.createClient; break; }
+                  if (!VapiCtor && typeof val === 'function' && /Vapi/i.test(key)) { VapiCtor = val; }
+                }
+                if (found && !client) {
+                  updateStatus('Found createClient on window');
+                  try { client = found({ publicKey }); } catch (e) { logError('Factory createClient failed', e); }
+                }
+              } catch(_) {}
+            }
+            if (!client && !VapiCtor) throw new Error('Vapi constructor not found after SDK load');
           }
           if (!client) {
             try { client = new VapiCtor(publicKey); }

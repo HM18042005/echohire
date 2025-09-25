@@ -19,9 +19,8 @@ import hashlib
 # Load environment variables from .env file
 load_dotenv()
 
-# AI Integration imports
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+# AI Integration imports (optional)
+# Do not hard-require google.generativeai here; ai_services handles fallbacks.
 import httpx
 from ai_services import gemini_service, vapi_service
 from vapi_workflows import InterviewSetupAssistant
@@ -80,8 +79,17 @@ except Exception as e:
     print("🔄 Running in offline mode with mock data...")
     db = None
 
-# Initialize Google Gemini AI
-genai.configure(api_key=os.getenv("GOOGLE_AI_API_KEY", "your-gemini-api-key-here"))
+# Initialize Google Gemini AI (best-effort; safe if package/env missing)
+try:
+    import google.generativeai as genai  # type: ignore
+    api_key = os.getenv("GOOGLE_AI_API_KEY", "")
+    if api_key:
+        genai.configure(api_key=api_key)
+        print("✅ Google Generative AI SDK configured")
+    else:
+        print("⚠️ GOOGLE_AI_API_KEY not set; skipping Generative AI SDK configuration")
+except Exception as e:
+    print(f"⚠️ google.generativeai not available or failed to configure: {e}")
 
 app = FastAPI(title="EchoHire API", version="1.0.0")
 
@@ -512,12 +520,50 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                                     }
                                                     window.__vapiUmdLoading = false;
                                                 }
-                                                if (window.Vapi) {
-                                                    VapiCtor = (typeof window.Vapi === 'function') ? window.Vapi : (window.Vapi.default || window.Vapi.Vapi);
-                                                }
-                                                if (typeof VapiCtor !== 'function') {
-                                                    throw new Error('Vapi constructor not found after UMD fallback');
-                                                }
+                                                            // Try common UMD globals
+                                                            if (window.Vapi) {
+                                                                updateStatus('Found window.Vapi after UMD');
+                                                                VapiCtor = (typeof window.Vapi === 'function') ? window.Vapi : (window.Vapi.default || window.Vapi.Vapi);
+                                                            } else if (window.vapi) {
+                                                                updateStatus('Found window.vapi after UMD');
+                                                                const gv = window.vapi;
+                                                                VapiCtor = (typeof gv === 'function') ? gv : (gv.default || gv.Vapi);
+                                                            }
+                                                            // Factory fallback from globals
+                                                            if (typeof VapiCtor !== 'function') {
+                                                                const tryFactories = [
+                                                                    (window.Vapi && window.Vapi.createClient),
+                                                                    (window.Vapi && window.Vapi.default && window.Vapi.default.createClient),
+                                                                    (window.vapi && window.vapi.createClient),
+                                                                    (window.vapi && window.vapi.default && window.vapi.default.createClient),
+                                                                ].filter(Boolean);
+                                                                let factory = null;
+                                                                if (tryFactories.length) {
+                                                                    factory = tryFactories[0];
+                                                                    updateStatus('Using global factory createClient(..)');
+                                                                    try { client = factory({ publicKey }); } catch(_) {}
+                                                                }
+                                                                if (!client) {
+                                                                    // Last resort: scan window for any object exposing createClient
+                                                                    try {
+                                                                        const names = Object.getOwnPropertyNames(window).slice(0, 5000);
+                                                                        let found = null;
+                                                                        for (const key of names) {
+                                                                            const val = window[key];
+                                                                            if (val && typeof val.createClient === 'function') { found = val.createClient; break; }
+                                                                            if (val && val.default && typeof val.default.createClient === 'function') { found = val.default.createClient; break; }
+                                                                            if (!found && typeof val === 'function' && /Vapi/i.test(key)) { VapiCtor = val; }
+                                                                        }
+                                                                        if (found && !client) {
+                                                                            updateStatus('Found createClient on window.' + (names.find(k => window[k] && (window[k].createClient || (window[k].default && window[k].default.createClient))) || 'unknown'));
+                                                                            try { client = found({ publicKey }); } catch(_) {}
+                                                                        }
+                                                                    } catch(_) {}
+                                                                }
+                                                                if (!client && typeof VapiCtor !== 'function') {
+                                                                    throw new Error('Vapi constructor not found after UMD fallback');
+                                                                }
+                                                            }
                                             }
 
                                 updateStatus('Creating Vapi client…');
