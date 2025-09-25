@@ -439,7 +439,7 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
             <button id=\"endBtn\" class=\"hidden\" disabled>End Interview</button>
         </div>
         <script>
-            (async () => {
+            (async function() {
                 const statusEl = document.getElementById('status');
                 const endBtn = document.getElementById('endBtn');
                 function updateStatus(msg, showBtn=false) {
@@ -494,13 +494,13 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                 
                                 // Try each possible location for the constructor
                                 const constructorCandidates = [
-                                    () => Mod,                           // module itself is the ctor
-                                    () => Mod && Mod.default,            // default export is ctor
-                                    () => Mod && Mod.default && Mod.default.Vapi,  // nested under default
-                                    () => Mod && Mod.Vapi,               // named export Vapi
-                                    () => Mod && Mod.WebVapi,            // try another plausible name
-                                    () => Mod && Mod.Client,             // maybe called Client
-                                    () => Mod && Mod.default && Mod.default.Client, // Client under default
+                                    function() { return Mod; },                           // module itself is the ctor
+                                    function() { return Mod && Mod.default; },            // default export is ctor
+                                    function() { return Mod && Mod.default && Mod.default.Vapi; },  // nested under default
+                                    function() { return Mod && Mod.Vapi; },               // named export Vapi
+                                    function() { return Mod && Mod.WebVapi; },            // try another plausible name
+                                    function() { return Mod && Mod.Client; },             // maybe called Client
+                                    function() { return Mod && Mod.default && Mod.default.Client; }, // Client under default
                                 ];
                                 
                                 for (let i = 0; i < constructorCandidates.length && !VapiCtor; i++) {
@@ -576,46 +576,56 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                             }
                             
                             if (!client && typeof VapiCtor !== 'function') {
-                                const shape = (()=>{ try { return JSON.stringify(Mod); } catch(_) { return String(Mod); } })();
+                                const shape = (function() { try { return JSON.stringify(Mod); } catch(_) { return String(Mod); } })();
                                 updateStatus('ESM lacked constructor. typeof(Mod)='+ (typeof Mod) + ' shape=' + shape + ' → Trying UMD dist fallback…');
-                                                // UMD fallback: try to load a working UMD build
-                                                const loadScript = (src) => new Promise((resolve, reject) => { 
-                                                    const s=document.createElement('script'); 
-                                                    s.src=src; s.async=true; s.crossOrigin='anonymous'; 
-                                                    s.onload=()=>resolve(); 
-                                                    s.onerror=(e)=>reject(e); 
-                                                    document.head.appendChild(s); 
-                                                });
-                                                
-                                                // Set up exports object to avoid "exports is not defined" error
-                                                if (typeof window.exports === 'undefined') {
-                                                    window.exports = {};
-                                                }
-                                                
-                                                const umdCandidates = [
-                                                    'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
-                                                    'https://fastly.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
-                                                    'https://unpkg.com/@vapi-ai/web@latest/dist/vapi.js',
-                                                ];
-                                                if (!window.__vapiUmdLoading) {
-                                                    window.__vapiUmdLoading = true;
-                                                    for (let i=0; i<umdCandidates.length && !window.Vapi; i++) {
-                                                        const url = umdCandidates[i];
-                                                        try { 
-                                                            // Clear any previous failed attempts
-                                                            const existingScripts = document.querySelectorAll('script[src*="@vapi-ai/web"]');
-                                                            existingScripts.forEach(script => {
-                                                                if (script.src !== url) script.remove();
-                                                            });
-                                                            
-                                                            updateStatus('Loading UMD from: ' + url); 
-                                                            await loadScript(url); 
-                                                        } catch(e) { 
-                                                            updateStatus('UMD failed: ' + e.message);
-                                                        }
-                                                    }
-                                                    window.__vapiUmdLoading = false;
-                                                }
+                                
+                                // Set up exports object to avoid "exports is not defined" error
+                                if (typeof window.exports === 'undefined') {
+                                    window.exports = {};
+                                }
+                                
+                                // UMD fallback: try to load a working UMD build synchronously
+                                const loadScriptSync = function(src) {
+                                    return new Promise(function(resolve, reject) { 
+                                        const s = document.createElement('script'); 
+                                        s.src = src; 
+                                        s.async = true; 
+                                        s.crossOrigin = 'anonymous'; 
+                                        s.onload = function() { resolve(); };
+                                        s.onerror = function(e) { reject(e); };
+                                        document.head.appendChild(s); 
+                                    });
+                                };
+                                
+                                const umdCandidates = [
+                                    'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
+                                    'https://fastly.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
+                                    'https://unpkg.com/@vapi-ai/web@latest/dist/vapi.js',
+                                ];
+                                
+                                // Load UMD scripts sequentially
+                                let umdLoadPromise = Promise.resolve();
+                                if (!window.__vapiUmdLoading) {
+                                    window.__vapiUmdLoading = true;
+                                    for (let i = 0; i < umdCandidates.length && !window.Vapi; i++) {
+                                        const url = umdCandidates[i];
+                                        umdLoadPromise = umdLoadPromise.then(function() {
+                                            // Clear any previous failed attempts
+                                            const existingScripts = document.querySelectorAll('script[src*="@vapi-ai/web"]');
+                                            existingScripts.forEach(function(script) {
+                                                if (script.src !== url) script.remove();
+                                            });
+                                            
+                                            updateStatus('Loading UMD from: ' + url); 
+                                            return loadScriptSync(url);
+                                        }).catch(function(e) { 
+                                            updateStatus('UMD failed: ' + e.message);
+                                        });
+                                    }
+                                    umdLoadPromise.finally(function() {
+                                        window.__vapiUmdLoading = false;
+                                    });
+                                }
                                                             // Try common UMD globals
                                                             if (window.Vapi) {
                                                                 updateStatus('Found window.Vapi after UMD');
@@ -695,7 +705,7 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                 }
                                 try { if (client) updateStatus('Vapi client created ✓'); } catch(_) {}
 
-                    const logError = (label, e) => {
+                    const logError = function(label, e) {
                         try {
                             const msg = (e && e.message) ? e.message : (typeof e === 'object' ? JSON.stringify(e) : String(e));
                             updateStatus(label + ': ' + msg, true);
@@ -705,19 +715,19 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                             }
                         } catch(_e){}
                     };
-                    client.on('error', (e) => logError('Error', e));
-                    try { client.on('call-failed', (e) => logError('Call failed', e)); } catch(_e){}
-                    try { client.on('daily-error', (e) => logError('Daily error', e)); } catch(_e){}
+                    client.on('error', function(e) { logError('Error', e); });
+                    try { client.on('call-failed', function(e) { logError('Call failed', e); }); } catch(_e){}
+                    try { client.on('daily-error', function(e) { logError('Daily error', e); }); } catch(_e){}
 
                     // CallId discovery
-                    const tryExtractId = (obj) => {
+                    const tryExtractId = function(obj) {
                         if (!obj) return null; const keys=['id','callId','call_id','uuid','roomId','roomName'];
                         for (const k of keys) { if (obj && typeof obj[k]==='string' && obj[k]) return obj[k]; }
                         if (obj.call) { for (const k of keys) { if (obj.call && typeof obj.call[k]==='string' && obj.call[k]) return obj.call[k]; } }
                         if (obj.data) { for (const k of keys) { if (obj.data && typeof obj.data[k]==='string' && obj.data[k]) return obj.data[k]; } }
                         return null;
                     };
-                    let sentCallId=false; const maybeSendCallId=(src,payload)=>{
+                    let sentCallId=false; const maybeSendCallId = function(src,payload) {
                         if (sentCallId) return; const cid = tryExtractId(payload) || tryExtractId(client) || tryExtractId((client && client.call)||null);
                         if (cid && typeof vapiCallId !== 'undefined' && vapiCallId.postMessage) {
                             try { vapiCallId.postMessage(JSON.stringify({ callId: cid, assistantId, metadata })); sentCallId=true; updateStatus('Call ID captured from '+src+': '+cid, true); } catch(_e){}
@@ -731,14 +741,21 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                     updateStatus('Interview started (ID: ' + (immediateId || 'unknown') + ')', true);
                     maybeSendCallId('start()', call);
 
-                    client.on('call-start', (evt) => { updateStatus('Interview in progress…', true); try { updateStatus('call-start evt: ' + JSON.stringify(evt)); } catch(_e){} maybeSendCallId('call-start', evt); });
-                    client.on('speech-start', () => updateStatus('Listening…', true));
-                    client.on('speech-end', () => updateStatus('Processing your response…', true));
-                    client.on('call-end', () => { updateStatus('Interview completed.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('done'); });
+                    client.on('call-start', function(evt) { updateStatus('Interview in progress…', true); try { updateStatus('call-start evt: ' + JSON.stringify(evt)); } catch(_e){} maybeSendCallId('call-start', evt); });
+                    client.on('speech-start', function() { updateStatus('Listening…', true); });
+                    client.on('speech-end', function() { updateStatus('Processing your response…', true); });
+                    client.on('call-end', function() { updateStatus('Interview completed.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('done'); });
 
-                    endBtn.onclick = async () => {
-                        try { endBtn.disabled=true; updateStatus('Ending…'); await client.stop(); updateStatus('Ended.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('ended'); }
-                        catch(e) { logError('Failed to end', e); endBtn.disabled=false; }
+                    endBtn.onclick = function() {
+                        endBtn.disabled = true; 
+                        updateStatus('Ending…'); 
+                        client.stop().then(function() {
+                            updateStatus('Ended.'); 
+                            if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('ended');
+                        }).catch(function(e) { 
+                            logError('Failed to end', e); 
+                            endBtn.disabled = false; 
+                        });
                     };
                 } catch(e) { updateStatus('Fatal: ' + (e && e.message ? e.message : e), true); }
             })();
