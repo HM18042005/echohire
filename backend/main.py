@@ -1201,7 +1201,6 @@ async def start_ai_interview(
         
         # Generate AI session ID
         ai_session_id = str(uuid.uuid4())
-        vapi_call_id = f"vapi_{ai_session_id}"
         
         # Start Vapi interview call
         vapi_response = await vapi_service.start_interview_call(
@@ -1209,11 +1208,16 @@ async def start_ai_interview(
             request.candidatePhoneNumber
         )
         
+        # Check if we got a valid call ID
+        call_id = vapi_response.get("callId")
+        if not call_id:
+            raise HTTPException(status_code=500, detail="Failed to initialize Vapi call - no call ID returned")
+        
         # Update interview with AI session info
         now = datetime.utcnow().isoformat()
         interview_ref.update({
             "aiSessionId": ai_session_id,
-            "vapiCallId": vapi_response.get("callId", vapi_call_id),
+            "vapiCallId": call_id,
             "webCallUrl": vapi_response.get("webCallUrl"),
             "status": "inProgress",
             "updatedAt": now
@@ -1221,7 +1225,7 @@ async def start_ai_interview(
         
         return AIInterviewStartResponse(
             aiSessionId=ai_session_id,
-            vapiCallId=vapi_response.get("callId", vapi_call_id),
+            vapiCallId=call_id,
             status="in_progress",
             message=vapi_response.get("message", "AI interview session started successfully"),
             webCallUrl=vapi_response.get("webCallUrl")

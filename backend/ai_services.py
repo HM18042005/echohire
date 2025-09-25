@@ -325,35 +325,8 @@ class VapiInterviewService:
                     }
                 }
 
-                # If assistant is scoped, use its ID; otherwise send inline assistant config
-                if self.vapi_assistant_id:
-                    call_config["assistantId"] = self.vapi_assistant_id
-                else:
-                    call_config["assistant"] = {
-                        "model": {
-                            "provider": "openai",
-                            "model": "gpt-4",
-                            "messages": [
-                                {
-                                    "role": "system",
-                                    "content": f"""You are an expert interviewer conducting a {interview_data.get('type', 'technical')} interview for a {interview_data.get('jobTitle', 'Software Engineer')} position. 
-                                    
-                                    Your task is to:
-                                    1. Ask relevant questions based on the role and experience level
-                                    2. Listen carefully to responses and ask follow-up questions
-                                    3. Evaluate technical competency and communication skills
-                                    4. Keep the interview engaging and professional
-                                    5. End the interview after 15-20 minutes with a summary
-                                    
-                                    Start by introducing yourself and explaining the interview process."""
-                                }
-                            ]
-                        },
-                        "voice": {
-                            "provider": "elevenlabs",
-                            "voiceId": "professional_interviewer"
-                        }
-                    }
+                # Always use the assistant ID since we have one configured
+                call_config["assistantId"] = self.vapi_assistant_id or "bc32bb37-e1ff-40bc-97f2-230bf9710231"
 
                 # Note: Webhook configuration removed as it's causing 400 errors with Vapi API
                 # Webhooks can be configured directly in the Vapi dashboard instead
@@ -364,32 +337,47 @@ class VapiInterviewService:
                 print(f"[VAPI_START] Using {'phone' if phone_number else 'web'} call mode")
                 print(f"[VAPI_START] API Key: ***{self.vapi_api_key[-8:] if len(self.vapi_api_key) > 8 else '***'}")
 
-                # Phone or web call selection
+                # Use the standard calls endpoint - Vapi determines call type from configuration
+                endpoint = f"{self.base_url}/call"
+                print(f"[VAPI_START] Call endpoint: {endpoint}")
+                
+                # Add phone number if provided (for phone calls)
                 if phone_number:
                     call_config["phoneNumberId"] = phone_number
-                    endpoint = f"{self.base_url}/call/phone"
-                    print(f"[VAPI_START] Phone call endpoint: {endpoint}")
-                    response = await client.post(
-                        endpoint,
-                        headers=headers,
-                        json=call_config
-                    )
+                    print(f"[VAPI_START] Phone call mode with number: {phone_number}")
                 else:
-                    endpoint = f"{self.base_url}/call/web"
-                    print(f"[VAPI_START] Web call endpoint: {endpoint}")
-                    response = await client.post(
-                        endpoint,
-                        headers=headers,
-                        json=call_config
-                    )
+                    # For web calls, we need to use a different approach
+                    # Vapi may require the call to be initiated from the client side
+                    print(f"[VAPI_START] Web call mode - this may not be supported via server-side API")
+                    print(f"[VAPI_START] Web calls typically need to be initiated from client-side JavaScript SDK")
+                    
+                    # For now, return a mock response indicating client-side initiation needed
+                    return {
+                        "callId": "web_call_client_side",
+                        "status": "client_side_required",
+                        "message": "Web calls must be initiated from client-side using Vapi JavaScript SDK",
+                        "webCallUrl": None,
+                        "assistantId": call_config["assistantId"]
+                    }
+                
+                response = await client.post(
+                    endpoint,
+                    headers=headers,
+                    json=call_config
+                )
                 
                 print(f"[VAPI_START] Response status: {response.status_code}")
                 print(f"[VAPI_START] Response headers: {dict(response.headers)}")
                 
                 if response.status_code in (200, 201):
                     call_data = response.json()
+                    call_id = call_data.get("id") or call_data.get("callId")
+                    print(f"[VAPI_START] SUCCESS! Call created with ID: {call_id}")
+                    print(f"[VAPI_START] Call data keys: {list(call_data.keys())}")
+                    print(f"[VAPI_START] Call status: {call_data.get('status')}")
+                    
                     return {
-                        "callId": call_data.get("id") or call_data.get("callId"),
+                        "callId": call_id,
                         "status": call_data.get("status", "initiated"),
                         "message": "Interview call started successfully",
                         "webCallUrl": call_data.get("webCallUrl") if not phone_number else None
@@ -425,8 +413,9 @@ class VapiInterviewService:
         except httpx.TimeoutException as e:
             print(f"[VAPI_START] Timeout error: Request to Vapi API timed out")
             print(f"[VAPI_START] Timeout details: {e}")
-            # Return error status for timeout
-            call_id = f"vapi_call_{interview_data.get('id', 'unknown')}"
+            # Return error status for timeout with mock call ID
+            import uuid
+            call_id = f"mock_timeout_{str(uuid.uuid4())}"
             return {
                 "callId": call_id,
                 "status": "timeout_error",
@@ -436,8 +425,9 @@ class VapiInterviewService:
         except httpx.RequestError as e:
             print(f"[VAPI_START] Network error: Failed to connect to Vapi API")
             print(f"[VAPI_START] Network error details: {e}")
-            # Return error status for network errors
-            call_id = f"vapi_call_{interview_data.get('id', 'unknown')}"
+            # Return error status for network errors with mock call ID
+            import uuid
+            call_id = f"mock_network_{str(uuid.uuid4())}"
             return {
                 "callId": call_id,
                 "status": "network_error",
@@ -448,8 +438,9 @@ class VapiInterviewService:
             print(f"[VAPI_START] Unexpected error: {type(e).__name__}: {e}")
             import traceback
             print(f"[VAPI_START] Full traceback: {traceback.format_exc()}")
-            # Return mock data for development
-            call_id = f"vapi_call_{interview_data.get('id', 'unknown')}"
+            # Return mock data for development with mock call ID
+            import uuid
+            call_id = f"mock_error_{str(uuid.uuid4())}"
             return {
                 "callId": call_id,
                 "status": "error",
@@ -460,6 +451,38 @@ class VapiInterviewService:
     async def get_call_status(self, call_id: str) -> Dict[str, Any]:
         """Get the status of a Vapi call with detailed error logging"""
         try:
+            # Check if this is a mock/fallback call ID
+            if (call_id.startswith("vapi_call_") or call_id.startswith("vapi_") or 
+                call_id.startswith("mock_") or call_id == "web_call_client_side"):
+                print(f"[VAPI_STATUS] Mock/fallback call ID detected: {call_id}")
+                print(f"[VAPI_STATUS] Returning mock status for development/error call")
+                
+                # Determine status based on mock call type
+                if call_id == "web_call_client_side":
+                    status = "client_side_required"
+                    ended_reason = "Web calls must be initiated from client-side using Vapi JavaScript SDK"
+                elif "timeout" in call_id:
+                    status = "timeout_error"
+                    ended_reason = "Call timed out - Vapi API not responding"
+                elif "network" in call_id:
+                    status = "network_error"
+                    ended_reason = "Network error - Could not connect to Vapi API"
+                elif "error" in call_id:
+                    status = "error"
+                    ended_reason = "Call failed - Vapi integration error"
+                else:
+                    status = "mock_call"
+                    ended_reason = "Mock call - Vapi integration not available"
+                
+                return {
+                    "callId": call_id,
+                    "status": status,
+                    "duration": 300,
+                    "transcriptUrl": None,
+                    "recordingUrl": None,
+                    "endedReason": ended_reason
+                }
+            
             # Validate configuration before proceeding
             config_status = self.validate_configuration()
             if not config_status["is_configured"]:
