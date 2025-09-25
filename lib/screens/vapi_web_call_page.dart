@@ -86,18 +86,19 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
 
           updateStatus('Loading Vapi SDK…');
           const cdnBases = [
+            'https://cdn.vapi.ai/sdk', // canonical CDN
             'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest',
             'https://unpkg.com/@vapi-ai/web@latest',
             'https://fastly.jsdelivr.net/npm/@vapi-ai/web@latest',
           ];
           const paths = [
-            '/dist/vapi-web.min.js',
+            '/vapi.min.js', // preferred UMD filename
+            '/dist/vapi.min.js', // jsdelivr/unpkg path
+            // additional legacy/alt names as last resorts
             '/dist/index.umd.min.js',
             '/dist/index.umd.js',
             '/dist/web.umd.min.js',
             '/dist/web.umd.js',
-            '/dist/index.js',
-            '/vapi-web.min.js',
           ];
           for (let i = 0; !window.Vapi && i < cdnBases.length; i++) {
             for (let j = 0; !window.Vapi && j < paths.length; j++) {
@@ -131,7 +132,8 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           }
 
           updateStatus('Starting interview…');
-          const call = await client.start({ assistantId, metadata });
+          // Start the call: SDK expects assistantId (string). Metadata association is handled server-side.
+          const call = await client.start(assistantId);
           updateStatus('Interview started (ID: ' + (call && call.id ? call.id : 'unknown') + ')', true);
 
           // Notify Flutter about the real callId so it can send to backend
@@ -167,7 +169,14 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
       )
       ..addJavaScriptChannel(
         'statusUpdate',
-        onMessageReceived: (JavaScriptMessage message) {},
+        onMessageReceived: (JavaScriptMessage message) {
+          // Print status updates from the embedded page to help diagnose SDK loading
+          // and call lifecycle events.
+          // Example messages: "Loading SDK from: <url>", "Creating Vapi client…", etc.
+          // You can also surface these in the UI if needed.
+          // ignore: avoid_print
+          print('[VapiWebView] ${message.message}');
+        },
       )
       ..addJavaScriptChannel(
         'vapiCallId',
