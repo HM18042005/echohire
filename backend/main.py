@@ -491,22 +491,107 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
 
                                 // Robust constructor detection across ESM variants
                                 let VapiCtor = null;
-                                if (typeof Mod === 'function') {
-                                    VapiCtor = Mod; // module itself is the ctor
-                                } else if (Mod && typeof Mod.default === 'function') {
-                                    VapiCtor = Mod.default; // default export is ctor
-                                } else if (Mod && Mod.default && typeof Mod.default.Vapi === 'function') {
-                                    VapiCtor = Mod.default.Vapi; // nested under default
-                                } else if (Mod && typeof Mod.Vapi === 'function') {
-                                    VapiCtor = Mod.Vapi; // named export Vapi
-                                } else if (Mod && typeof Mod.WebVapi === 'function') {
-                                    VapiCtor = Mod.WebVapi; // try another plausible name
+                                
+                                // Try each possible location for the constructor
+                                const constructorCandidates = [
+                                    () => Mod,                           // module itself is the ctor
+                                    () => Mod && Mod.default,            // default export is ctor
+                                    () => Mod && Mod.default && Mod.default.Vapi,  // nested under default
+                                    () => Mod && Mod.Vapi,               // named export Vapi
+                                    () => Mod && Mod.WebVapi,            // try another plausible name
+                                    () => Mod && Mod.Client,             // maybe called Client
+                                    () => Mod && Mod.default && Mod.default.Client, // Client under default
+                                ];
+                                
+                                for (let i = 0; i < constructorCandidates.length && !VapiCtor; i++) {
+                                    try {
+                                        const candidate = constructorCandidates[i]();
+                                        if (typeof candidate === 'function') {
+                                            updateStatus('Found constructor via candidate ' + i + ' (' + (candidate.name || 'anonymous') + ')');
+                                            VapiCtor = candidate;
+                                            break;
+                                        }
+                                    } catch (e) {
+                                        // Ignore and try next candidate
+                                    }
                                 }
-                                            if (typeof VapiCtor !== 'function') {
-                                                const shape = (()=>{ try { return JSON.stringify(Mod); } catch(_) { return String(Mod); } })();
-                                                updateStatus('ESM lacked constructor. typeof(Mod)='+ (typeof Mod) + ' shape=' + shape + ' → Trying UMD dist fallback…');
-                                                // UMD fallback: load dist/vapi.js and use window.Vapi
-                                                const loadScript = (src) => new Promise((resolve, reject) => { const s=document.createElement('script'); s.src=src; s.async=true; s.crossOrigin='anonymous'; s.onload=()=>resolve(); s.onerror=(e)=>reject(e); document.head.appendChild(s); });
+                                
+                                // If still not found, try to look for anything that might be a class constructor
+                                if (!VapiCtor && Mod) {
+                                    try {
+                                        const allKeys = [...Object.keys(Mod), ...(Mod.default ? Object.keys(Mod.default) : [])];
+                                        updateStatus('Examining all available keys: ' + allKeys.join(', '));
+                                        
+                                        for (const key of allKeys) {
+                                            const val = Mod[key] || (Mod.default && Mod.default[key]);
+                                            if (typeof val === 'function' && (/Vapi|Client/i.test(key) || val.prototype)) {
+                                                updateStatus('Found potential constructor: ' + key);
+                                                VapiCtor = val;
+                                                break;
+                                            }
+                                        }
+                                    } catch (e) {
+                                        updateStatus('Error examining keys: ' + e.message);
+                                    }
+                                }
+                                            // If no constructor found, try factory patterns from ESM first
+                            if (typeof VapiCtor !== 'function') {
+                                updateStatus('No constructor found, trying ESM factory patterns...');
+                                
+                                // Try common factory function names
+                                const factoryCandidates = [
+                                    () => Mod && Mod.createClient,
+                                    () => Mod && Mod.default && Mod.default.createClient,
+                                    () => Mod && Mod.create,
+                                    () => Mod && Mod.default && Mod.default.create,
+                                    () => Mod && Mod.Vapi && Mod.Vapi.createClient,
+                                    () => Mod && Mod.default && Mod.default.Vapi && Mod.default.Vapi.createClient,
+                                ];
+                                
+                                let factory = null;
+                                for (let i = 0; i < factoryCandidates.length && !factory; i++) {
+                                    try {
+                                        const candidate = factoryCandidates[i]();
+                                        if (typeof candidate === 'function') {
+                                            updateStatus('Found ESM factory via candidate ' + i);
+                                            factory = candidate;
+                                            break;
+                                        }
+                                    } catch (e) {
+                                        // Ignore and try next
+                                    }
+                                }
+                                
+                                if (factory) {
+                                    try {
+                                        updateStatus('Trying ESM factory with publicKey...');
+                                        client = factory({ publicKey });
+                                        if (client) {
+                                            updateStatus('ESM factory success! ✓');
+                                        }
+                                    } catch (e) {
+                                        updateStatus('ESM factory failed: ' + e.message);
+                                    }
+                                }
+                            }
+                            
+                            if (!client && typeof VapiCtor !== 'function') {
+                                const shape = (()=>{ try { return JSON.stringify(Mod); } catch(_) { return String(Mod); } })();
+                                updateStatus('ESM lacked constructor. typeof(Mod)='+ (typeof Mod) + ' shape=' + shape + ' → Trying UMD dist fallback…');
+                                                // UMD fallback: try to load a working UMD build
+                                                const loadScript = (src) => new Promise((resolve, reject) => { 
+                                                    const s=document.createElement('script'); 
+                                                    s.src=src; s.async=true; s.crossOrigin='anonymous'; 
+                                                    s.onload=()=>resolve(); 
+                                                    s.onerror=(e)=>reject(e); 
+                                                    document.head.appendChild(s); 
+                                                });
+                                                
+                                                // Set up exports object to avoid "exports is not defined" error
+                                                if (typeof window.exports === 'undefined') {
+                                                    window.exports = {};
+                                                }
+                                                
                                                 const umdCandidates = [
                                                     'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
                                                     'https://fastly.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
@@ -516,7 +601,18 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                                     window.__vapiUmdLoading = true;
                                                     for (let i=0; i<umdCandidates.length && !window.Vapi; i++) {
                                                         const url = umdCandidates[i];
-                                                        try { updateStatus('Loading UMD from: ' + url); await loadScript(url); } catch(e) { /* try next */ }
+                                                        try { 
+                                                            // Clear any previous failed attempts
+                                                            const existingScripts = document.querySelectorAll('script[src*="@vapi-ai/web"]');
+                                                            existingScripts.forEach(script => {
+                                                                if (script.src !== url) script.remove();
+                                                            });
+                                                            
+                                                            updateStatus('Loading UMD from: ' + url); 
+                                                            await loadScript(url); 
+                                                        } catch(e) { 
+                                                            updateStatus('UMD failed: ' + e.message);
+                                                        }
                                                     }
                                                     window.__vapiUmdLoading = false;
                                                 }
@@ -566,18 +662,19 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                                             }
                                             }
 
-                                updateStatus('Creating Vapi client…');
-                                let client = null;
-                                try {
-                                    client = new VapiCtor(publicKey);
-                                } catch (e1) {
-                                    try { client = new VapiCtor({ publicKey }); }
-                                    catch (e2) {
-                                        // Some builds may expose constructor under a property as well (rare)
-                                        try {
-                                            const alt = (VapiCtor && VapiCtor.default) || (VapiCtor && VapiCtor.Vapi);
-                                            if (typeof alt === 'function') {
-                                                try { client = new alt(publicKey); } catch(_) { client = new alt({ publicKey }); }
+                                // Only create client if we haven't already done so via factory
+                                if (!client) {
+                                    updateStatus('Creating Vapi client…');
+                                    try {
+                                        client = new VapiCtor(publicKey);
+                                    } catch (e1) {
+                                        try { client = new VapiCtor({ publicKey }); }
+                                        catch (e2) {
+                                            // Some builds may expose constructor under a property as well (rare)
+                                            try {
+                                                const alt = (VapiCtor && VapiCtor.default) || (VapiCtor && VapiCtor.Vapi);
+                                                if (typeof alt === 'function') {
+                                                    try { client = new alt(publicKey); } catch(_) { client = new alt({ publicKey }); }
                                             }
                                         } catch(_) {}
                                         // Factory fallback: some builds might expose a createClient function
@@ -590,7 +687,10 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                                 }
                                             } catch(_) {}
                                         }
-                                        if (!client) throw e2;
+                                        if (!client) {
+                                            updateStatus('Fatal: Cannot create Vapi client - no constructor or factory worked');
+                                            throw new Error('Unable to create Vapi client after trying all methods');
+                                        }
                                     }
                                 }
                                 try { if (client) updateStatus('Vapi client created ✓'); } catch(_) {}
