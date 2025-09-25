@@ -224,6 +224,40 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           try { client.on('call-failed', (e) => logError('Call failed', e)); } catch(_){}
           try { client.on('daily-error', (e) => logError('Daily error', e)); } catch(_){}
 
+          // Helper: attempt to extract a callId from various shapes
+          const tryExtractId = (obj) => {
+            if (!obj) return null;
+            const candidates = ['id', 'callId', 'call_id', 'uuid', 'roomId', 'roomName'];
+            for (const k of candidates) {
+              if (obj && typeof obj[k] === 'string' && obj[k]) return obj[k];
+            }
+            // nested common containers
+            if (obj.call) {
+              for (const k of candidates) {
+                if (obj.call && typeof obj.call[k] === 'string' && obj.call[k]) return obj.call[k];
+              }
+            }
+            if (obj.data) {
+              for (const k of candidates) {
+                if (obj.data && typeof obj.data[k] === 'string' && obj.data[k]) return obj.data[k];
+              }
+            }
+            return null;
+          };
+          const safeStringify = (v) => { try { return JSON.stringify(v); } catch(_) { return String(v); } };
+          let sentCallId = false;
+          const maybeSendCallId = (src, payload) => {
+            if (sentCallId) return;
+            const cid = tryExtractId(payload) || tryExtractId(client) || tryExtractId((client && client.call) || null);
+            if (cid && typeof vapiCallId !== 'undefined' && vapiCallId.postMessage) {
+              try {
+                vapiCallId.postMessage(JSON.stringify({ callId: cid, assistantId, metadata }));
+                sentCallId = true;
+                updateStatus('Call ID captured from ' + src + ': ' + cid, true);
+              } catch(_){}
+            }
+          };
+
           updateStatus('Starting interview…');
           // Start the call: SDK expects assistantId (string). Metadata association is handled server-side.
           let call;
@@ -233,7 +267,11 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
             logError('Start failed', e);
             throw e; // ensure UI shows error state and button appears
           }
-          updateStatus('Interview started (ID: ' + (call && call.id ? call.id : 'unknown') + ')', true);
+          // Log returned call payload for diagnostics
+          try { updateStatus('Start returned: ' + safeStringify(call)); } catch(_){}
+          const immediateId = tryExtractId(call);
+          updateStatus('Interview started (ID: ' + (immediateId || 'unknown') + ')', true);
+          maybeSendCallId('start()', call);
 
           // Notify Flutter about the real callId so it can send to backend
           try {
@@ -242,7 +280,7 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
             }
           } catch (_) {}
 
-          client.on('call-start', () => updateStatus('Interview in progress…', true));
+          client.on('call-start', (evt) => { updateStatus('Interview in progress…', true); try { updateStatus('call-start evt: ' + safeStringify(evt)); } catch(_){} maybeSendCallId('call-start', evt); });
           client.on('speech-start', () => updateStatus('Listening…', true));
           client.on('speech-end', () => updateStatus('Processing your response…', true));
           client.on('call-end', () => { updateStatus('Interview completed.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) { callEnded.postMessage('done'); } });
