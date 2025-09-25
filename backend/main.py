@@ -289,6 +289,11 @@ class AIInterviewStatusResponse(BaseModel):
     publicKey: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
+class UpdateVapiCallIdRequest(BaseModel):
+    callId: str
+    assistantId: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
 class AIFeedbackResponse(BaseModel):
     interviewId: str
     aiAnalysisId: str
@@ -1443,6 +1448,47 @@ async def get_ai_feedback(
         print(f"AI feedback error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get AI feedback")
 
+@app.post("/interviews/{interview_id}/vapi-call-id")
+async def update_vapi_call_id(
+    interview_id: str,
+    payload: UpdateVapiCallIdRequest,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """Record the real Vapi callId initiated from the client Web SDK.
+    This enables status polling without relying on webhooks."""
+    try:
+        uid = user_data["uid"]
+
+        interview_ref = db.collection("interviews").document(interview_id)
+        interview_doc = interview_ref.get()
+
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+
+        interview_data = interview_doc.to_dict()
+        if interview_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        now = datetime.utcnow().isoformat() + "Z"
+        update_payload: Dict[str, Any] = {
+            "vapiCallId": payload.callId,
+            "updatedAt": now,
+            # If the call started, ensure interview is marked in progress
+            "status": "inProgress",
+        }
+        if payload.assistantId:
+            update_payload["vapiAssistantId"] = payload.assistantId
+        if payload.metadata is not None:
+            update_payload["vapiClientInitMeta"] = payload.metadata
+
+        interview_ref.update(update_payload)
+
+        return {"ok": True, "vapiCallId": payload.callId}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Update vapi call id error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update Vapi call id")
 @app.post("/interviews/{interview_id}/stop-ai")
 async def stop_ai_interview(
     interview_id: str,

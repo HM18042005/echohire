@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:echohire/services/api_service.dart';
 
 class VapiWebCallPage extends StatefulWidget {
   final String publicKey;
   final String assistantId;
   final Map<String, dynamic> metadata;
+  final String interviewId;
   final VoidCallback? onCallEnded;
 
   const VapiWebCallPage({
@@ -15,6 +17,7 @@ class VapiWebCallPage extends StatefulWidget {
     required this.publicKey,
     required this.assistantId,
     required this.metadata,
+    required this.interviewId,
     this.onCallEnded,
   });
 
@@ -131,6 +134,13 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           const call = await client.start({ assistantId, metadata });
           updateStatus('Interview started (ID: ' + (call && call.id ? call.id : 'unknown') + ')', true);
 
+          // Notify Flutter about the real callId so it can send to backend
+          try {
+            if (call && call.id && typeof vapiCallId !== 'undefined' && vapiCallId.postMessage) {
+              vapiCallId.postMessage(JSON.stringify({ callId: call.id, assistantId, metadata }));
+            }
+          } catch (_) {}
+
           client.on('call-start', () => updateStatus('Interview in progress…', true));
           client.on('speech-start', () => updateStatus('Listening…', true));
           client.on('speech-end', () => updateStatus('Processing your response…', true));
@@ -158,6 +168,30 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
       ..addJavaScriptChannel(
         'statusUpdate',
         onMessageReceived: (JavaScriptMessage message) {},
+      )
+      ..addJavaScriptChannel(
+        'vapiCallId',
+        onMessageReceived: (JavaScriptMessage message) async {
+          try {
+            final payload = jsonDecode(message.message) as Map<String, dynamic>;
+            final callId = payload['callId']?.toString();
+            final assistantId = payload['assistantId']?.toString();
+            final meta = (payload['metadata'] is Map<String, dynamic>)
+                ? payload['metadata'] as Map<String, dynamic>
+                : <String, dynamic>{};
+            if (callId != null && callId.isNotEmpty) {
+              // Send to backend so status polling can use real callId
+              await ApiServiceSingleton.instance.sendVapiCallId(
+                interviewId: widget.interviewId,
+                callId: callId,
+                assistantId: assistantId,
+                metadata: meta,
+              );
+            }
+          } catch (e) {
+            // no-op
+          }
+        },
       )
       ..addJavaScriptChannel(
         'callEnded',

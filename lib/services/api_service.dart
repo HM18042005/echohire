@@ -688,6 +688,32 @@ class ApiService {
       throw Exception('Failed to get interview: $e');
     }
   }
+
+  /// Notify backend of the real Vapi callId created by the Web SDK
+  Future<bool> sendVapiCallId({
+    required String interviewId,
+    required String callId,
+    String? assistantId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    final url = Uri.parse('$_baseUrl/interviews/$interviewId/vapi-call-id');
+    try {
+      final resp = await _client.post(
+        url,
+        headers: await _getAuthHeaders(),
+        body: jsonEncode({
+          'callId': callId,
+          if (assistantId != null) 'assistantId': assistantId,
+          if (metadata != null) 'metadata': metadata,
+        }),
+      );
+      _handleResponse(resp, 'Send Vapi callId');
+      return resp.statusCode >= 200 && resp.statusCode < 300;
+    } catch (e) {
+      print('❌ Failed to send Vapi callId: $e');
+      return false;
+    }
+  }
 }
 
 /// Singleton instance of ApiService for global access

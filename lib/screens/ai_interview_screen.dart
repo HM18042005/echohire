@@ -207,6 +207,7 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
                 publicKey: publicKey,
                 assistantId: assistantId,
                 metadata: metadata,
+                interviewId: widget.interview.id,
                 onCallEnded: () async {
                   // On end, trigger status poll once then results
                   try {
@@ -651,6 +652,7 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
                             metadata:
                                 (status['metadata'] as Map<String, dynamic>?) ??
                                 {},
+                            interviewId: widget.interview.id,
                             onCallEnded: () async {
                               try {
                                 final st = await ApiServiceSingleton.instance
