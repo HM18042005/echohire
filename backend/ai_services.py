@@ -241,6 +241,8 @@ class VapiInterviewService:
     def __init__(self):
         self.vapi_api_key = os.getenv("VAPI_API_KEY", "your-vapi-key-here")
         self.base_url = "https://api.vapi.ai"
+        # Optional: assistant scoping (many Vapi tokens are scoped to specific assistants)
+        self.vapi_assistant_id = os.getenv("VAPI_ASSISTANT_ID")
         # Optional webhook support
         self.backend_public_url = os.getenv("BACKEND_PUBLIC_URL")  # e.g., https://api.example.com
         self.webhook_secret = os.getenv("VAPI_WEBHOOK_SECRET")
@@ -258,12 +260,27 @@ class VapiInterviewService:
             async with httpx.AsyncClient() as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
+                    "x-api-key": self.vapi_api_key,
                     "Content-Type": "application/json"
                 }
                 
                 # Prepare Vapi call configuration
                 call_config: Dict[str, Any] = {
-                    "assistant": {
+                    "customer": {
+                        "name": interview_data.get('candidateName', 'Candidate')
+                    },
+                    # Include metadata to correlate webhook events
+                    "metadata": {
+                        "interviewId": interview_data.get('id') or interview_data.get('interviewId'),
+                        "userId": interview_data.get('userId'),
+                    }
+                }
+
+                # If assistant is scoped, use its ID; otherwise send inline assistant config
+                if self.vapi_assistant_id:
+                    call_config["assistantId"] = self.vapi_assistant_id
+                else:
+                    call_config["assistant"] = {
                         "model": {
                             "provider": "openai",
                             "model": "gpt-4",
@@ -287,16 +304,7 @@ class VapiInterviewService:
                             "provider": "elevenlabs",
                             "voiceId": "professional_interviewer"
                         }
-                    },
-                    "customer": {
-                        "name": interview_data.get('candidateName', 'Candidate')
-                    },
-                    # Include metadata to correlate webhook events
-                    "metadata": {
-                        "interviewId": interview_data.get('id') or interview_data.get('interviewId'),
-                        "userId": interview_data.get('userId'),
                     }
-                }
 
                 # Attach webhook callback if configured
                 if self.backend_public_url:
@@ -331,7 +339,12 @@ class VapiInterviewService:
                         "webCallUrl": call_data.get("webCallUrl") if not phone_number else None
                     }
                 else:
-                    raise Exception(f"Failed to start Vapi call: {response.status_code}")
+                    # Surface body for easier debugging (401s etc.)
+                    try:
+                        body_text = response.text
+                    except Exception:
+                        body_text = "<no body>"
+                    raise Exception(f"Failed to start Vapi call: {response.status_code} - {body_text}")
             
         except Exception as e:
             print(f"Vapi call start error: {e}")
@@ -350,6 +363,7 @@ class VapiInterviewService:
             async with httpx.AsyncClient() as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
+                    "x-api-key": self.vapi_api_key,
                     "Content-Type": "application/json"
                 }
                 
@@ -388,6 +402,7 @@ class VapiInterviewService:
             async with httpx.AsyncClient() as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
+                    "x-api-key": self.vapi_api_key,
                     "Content-Type": "application/json"
                 }
                 
