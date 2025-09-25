@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class VapiWebCallPage extends StatefulWidget {
   final String publicKey;
@@ -32,7 +34,7 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
     <meta charset="utf-8" />
     <title>EchoHire AI Interview</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi-web.min.js"></script>
+  <!-- Vapi SDK will be loaded dynamically (jsdelivr ➜ unpkg fallback) -->
     <style>
       html, body { margin: 0; padding: 0; height: 100%; background: #0b1021; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; }
       #app { display: flex; align-items: center; justify-content: center; height: 100%; flex-direction: column; gap: 20px; text-align: center; padding: 20px; }
@@ -67,11 +69,63 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           const assistantId = ${jsonEncode(widget.assistantId)};
           const metadata = ${jsonEncode(widget.metadata)};
 
+          // Dynamically load Vapi SDK UMD build from CDN with fallbacks
+          async function loadScript(src) {
+            return new Promise((resolve, reject) => {
+              const s = document.createElement('script');
+              s.src = src;
+              s.async = true;
+              s.onload = () => resolve();
+              s.onerror = (e) => reject(e);
+              document.head.appendChild(s);
+            });
+          }
+
           updateStatus('Loading Vapi SDK…');
-          if(!window.Vapi){ throw new Error('Vapi SDK failed to load'); }
+          const cdnBases = [
+            'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest',
+            'https://unpkg.com/@vapi-ai/web@latest',
+            'https://fastly.jsdelivr.net/npm/@vapi-ai/web@latest',
+          ];
+          const paths = [
+            '/dist/vapi-web.min.js',
+            '/dist/index.umd.min.js',
+            '/dist/index.umd.js',
+            '/dist/web.umd.min.js',
+            '/dist/web.umd.js',
+            '/dist/index.js',
+            '/vapi-web.min.js',
+          ];
+          for (let i = 0; !window.Vapi && i < cdnBases.length; i++) {
+            for (let j = 0; !window.Vapi && j < paths.length; j++) {
+              const url = cdnBases[i] + paths[j];
+              try {
+                updateStatus('Loading SDK from: ' + url);
+                await loadScript(url);
+              } catch (e) {
+                // Continue trying next
+              }
+            }
+          }
+
+          if (!window.Vapi) {
+            throw new Error('Vapi SDK failed to load');
+          }
 
           updateStatus('Creating Vapi client…');
-          const client = new window.Vapi({ publicKey });
+          let client;
+          let VapiCtor = null;
+          if (typeof window.Vapi === 'function') VapiCtor = window.Vapi;
+          else if (window.Vapi && typeof window.Vapi.default === 'function') VapiCtor = window.Vapi.default;
+          else if (window.Vapi && typeof window.Vapi.Vapi === 'function') VapiCtor = window.Vapi.Vapi;
+          if (!VapiCtor) {
+            throw new Error('Vapi constructor not found after SDK load');
+          }
+          try {
+            client = new VapiCtor(publicKey);
+          } catch (_) {
+            client = new VapiCtor({ publicKey });
+          }
 
           updateStatus('Starting interview…');
           const call = await client.start({ assistantId, metadata });
@@ -111,8 +165,30 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           widget.onCallEnded?.call();
           if (mounted) Navigator.of(context).pop();
         },
-      )
-      ..loadHtmlString(_html);
+      );
+
+    // Android-specific permission grants for WebRTC/microphone
+    if (_controller.platform is AndroidWebViewController) {
+      final androidController =
+          _controller.platform as AndroidWebViewController;
+      AndroidWebViewController.enableDebugging(true);
+      androidController.setMediaPlaybackRequiresUserGesture(false);
+      androidController.setOnPlatformPermissionRequest((request) {
+        // Grant all requested resources (e.g., AUDIO_CAPTURE, VIDEO_CAPTURE)
+        request.grant();
+      });
+    }
+
+    _prepareAndLoad();
+  }
+
+  Future<void> _prepareAndLoad() async {
+    // Ensure OS microphone permission is granted before initializing the SDK
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      // Still load the page; SDK will likely fail to capture mic until granted
+    }
+    await _controller.loadHtmlString(_html);
   }
 
   @override
