@@ -475,12 +475,58 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                         const url = esmCandidates[i];
                         try { updateStatus('Importing ESM from: ' + url); Mod = await import(url); } catch(e) { /* try next */ }
                     }
-                    if (!Mod) throw new Error('Failed to import Vapi ESM');
-                    const VapiCtor = Mod.default || Mod.Vapi;
-                    if (!VapiCtor) throw new Error('Vapi constructor missing in module');
+                                if (!Mod) throw new Error('Failed to import Vapi ESM');
+                                try {
+                                    const keys = Object.keys(Mod || {});
+                                    updateStatus('Vapi ESM loaded. typeof(Mod)=' + (typeof Mod) + ', keys=' + (keys.length ? keys.join(',') : '<none>'));
+                                } catch(_) {}
 
-                    updateStatus('Creating Vapi client…');
-                    let client = null; try { client = new VapiCtor(publicKey); } catch(_) { client = new VapiCtor({ publicKey }); }
+                                // Robust constructor detection across ESM variants
+                                let VapiCtor = null;
+                                if (typeof Mod === 'function') {
+                                    VapiCtor = Mod; // module itself is the ctor
+                                } else if (Mod && typeof Mod.default === 'function') {
+                                    VapiCtor = Mod.default; // default export is ctor
+                                } else if (Mod && Mod.default && typeof Mod.default.Vapi === 'function') {
+                                    VapiCtor = Mod.default.Vapi; // nested under default
+                                } else if (Mod && typeof Mod.Vapi === 'function') {
+                                    VapiCtor = Mod.Vapi; // named export Vapi
+                                } else if (Mod && typeof Mod.WebVapi === 'function') {
+                                    VapiCtor = Mod.WebVapi; // try another plausible name
+                                }
+                                if (typeof VapiCtor !== 'function') {
+                                    const shape = (()=>{ try { return JSON.stringify(Mod); } catch(_) { return String(Mod); } })();
+                                    throw new Error('Vapi constructor not found in module. typeof='+(typeof Mod)+' shape='+shape);
+                                }
+
+                                updateStatus('Creating Vapi client…');
+                                let client = null;
+                                try {
+                                    client = new VapiCtor(publicKey);
+                                } catch (e1) {
+                                    try { client = new VapiCtor({ publicKey }); }
+                                    catch (e2) {
+                                        // Some builds may expose constructor under a property as well (rare)
+                                        try {
+                                            const alt = (VapiCtor && VapiCtor.default) || (VapiCtor && VapiCtor.Vapi);
+                                            if (typeof alt === 'function') {
+                                                try { client = new alt(publicKey); } catch(_) { client = new alt({ publicKey }); }
+                                            }
+                                        } catch(_) {}
+                                        // Factory fallback: some builds might expose a createClient function
+                                        if (!client) {
+                                            try {
+                                                const factory = (Mod && Mod.createClient) || (Mod && Mod.default && Mod.default.createClient);
+                                                if (typeof factory === 'function') {
+                                                    updateStatus('Using factory createClient(..)');
+                                                    client = factory({ publicKey });
+                                                }
+                                            } catch(_) {}
+                                        }
+                                        if (!client) throw e2;
+                                    }
+                                }
+                                try { if (client) updateStatus('Vapi client created ✓'); } catch(_) {}
 
                     const logError = (label, e) => {
                         try {

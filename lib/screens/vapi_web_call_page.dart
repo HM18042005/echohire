@@ -190,16 +190,22 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           updateStatus('Creating Vapi client…');
           let client;
           let VapiCtor = null;
-          if (typeof window.Vapi === 'function') VapiCtor = window.Vapi;
-          else if (window.Vapi && typeof window.Vapi.default === 'function') VapiCtor = window.Vapi.default;
-          else if (window.Vapi && typeof window.Vapi.Vapi === 'function') VapiCtor = window.Vapi.Vapi;
+          const VapiMod = window.Vapi;
+          if (typeof VapiMod === 'function') VapiCtor = VapiMod;
+          else if (VapiMod && typeof VapiMod.default === 'function') VapiCtor = VapiMod.default;
+          else if (VapiMod && typeof VapiMod.Vapi === 'function') VapiCtor = VapiMod.Vapi;
           if (!VapiCtor) {
-            throw new Error('Vapi constructor not found after SDK load');
+            // try factory pattern if present
+            const factory = (VapiMod && VapiMod.createClient) || (VapiMod && VapiMod.default && VapiMod.default.createClient);
+            if (typeof factory === 'function') {
+              updateStatus('Using factory createClient(..)');
+              try { client = factory({ publicKey }); } catch (e) { logError('Factory createClient failed', e); }
+            }
+            if (!client) throw new Error('Vapi constructor not found after SDK load');
           }
-          try {
-            client = new VapiCtor(publicKey);
-          } catch (_) {
-            client = new VapiCtor({ publicKey });
+          if (!client) {
+            try { client = new VapiCtor(publicKey); }
+            catch (_) { client = new VapiCtor({ publicKey }); }
           }
 
           // Attach critical listeners BEFORE starting the call to avoid uncaught 'error' events
