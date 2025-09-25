@@ -2,7 +2,7 @@ name: echohire
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -40,15 +40,16 @@ dependencies:
   flutter_riverpod: ^2.4.9
   provider: ^6.1.1
   http: ^1.1.2
-  flutter_dotenv: ^5.1.0
-  
+  flutter_dotenv: ^6.0.0
+
   # AI and Voice Integration
-  web_socket_channel: ^2.4.0    # For real-time communication
-  permission_handler: ^11.0.2   # For microphone permissions
-  flutter_sound: ^9.2.13        # Audio recording
-  flutter_tts: ^3.8.5           # Text-to-speech for AI responses
-  dio: ^5.3.2                   # Advanced HTTP client for AI APIs
-  url_launcher: ^6.3.0          # Open web call links
+  web_socket_channel: ^2.4.0 # For real-time communication
+  permission_handler: ^11.0.2 # For microphone permissions
+  flutter_sound: ^9.2.13 # Audio recording
+  flutter_tts: ^3.8.5 # Text-to-speech for AI responses
+  dio: ^5.3.2 # Advanced HTTP client for AI APIs
+  url_launcher: ^6.3.0 # Open web call links
+  webview_flutter: ^4.8.0 # WebView for Vapi Web SDK
 
 dev_dependencies:
   flutter_test:
@@ -66,7 +67,6 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

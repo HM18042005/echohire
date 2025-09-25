@@ -48,7 +48,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
 
     try {
       // Create user with Firebase Auth
-      final userCredential = await _authService.createUserWithEmailAndPassword(
+      await _authService.createUserWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text,
       );

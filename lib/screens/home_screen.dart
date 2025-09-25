@@ -451,7 +451,6 @@ class _InterviewCard extends StatelessWidget {
       case InterviewStatus.cancelled:
         return Colors.red;
       case InterviewStatus.pending:
-      default:
         return Colors.grey;
     }
   }
@@ -467,7 +466,6 @@ class _InterviewCard extends StatelessWidget {
       case InterviewStatus.cancelled:
         return Icons.cancel;
       case InterviewStatus.pending:
-      default:
         return Icons.pending;
     }
   }

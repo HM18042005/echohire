@@ -8,6 +8,7 @@ import '../models/interview.dart';
 import '../config.dart';
 import '../services/api_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'vapi_web_call_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
@@ -188,7 +189,48 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
       });
 
       print('✅ AI interview started successfully');
-      if (_webCallUrl != null) {
+      // If backend signals client-side web call, open embedded WebView with Vapi Web SDK
+      final status = (res['status'] ?? '').toString();
+      if (status == 'ready_for_client_init') {
+        final publicKey =
+            res['publicKey']?.toString() ?? AppConfig.vapiPublicKey;
+        final assistantId =
+            res['assistantId']?.toString() ?? AppConfig.vapiAssistantId ?? '';
+        final metadata = (res['metadata'] is Map<String, dynamic>)
+            ? (res['metadata'] as Map<String, dynamic>)
+            : <String, dynamic>{};
+
+        if (publicKey != null && assistantId.isNotEmpty && mounted) {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => VapiWebCallPage(
+                publicKey: publicKey,
+                assistantId: assistantId,
+                metadata: metadata,
+                onCallEnded: () async {
+                  // On end, trigger status poll once then results
+                  try {
+                    final status = await ApiServiceSingleton.instance
+                        .getAIInterviewStatus(widget.interview.id);
+                    await _onInterviewCompleted(
+                      transcriptUrl: status['transcriptUrl']?.toString(),
+                    );
+                  } catch (_) {}
+                },
+              ),
+            ),
+          );
+        } else {
+          _addToConversationLog(
+            ConversationEntry(
+              speaker: Speaker.ai,
+              content:
+                  'Unable to start web interview: missing Vapi configuration. Please set VAPI_PUBLIC_KEY and VAPI_ASSISTANT_ID.',
+              timestamp: DateTime.now(),
+            ),
+          );
+        }
+      } else if (_webCallUrl != null) {
         print('🔗 Web call URL available: $_webCallUrl');
         _addToConversationLog(
           ConversationEntry(
@@ -213,16 +255,21 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
       print('❌ Failed to start AI interview: $e');
       String userFriendlyMessage;
       if (e.toString().contains('400')) {
-        userFriendlyMessage = 'There was an issue with the interview setup. Our team has been notified. Please try again in a few minutes.';
+        userFriendlyMessage =
+            'There was an issue with the interview setup. Our team has been notified. Please try again in a few minutes.';
       } else if (e.toString().contains('401')) {
-        userFriendlyMessage = 'Authentication issue. Please try logging out and back in.';
-      } else if (e.toString().contains('timeout') || e.toString().contains('network')) {
-        userFriendlyMessage = 'Network connection issue. Please check your internet and try again.';
+        userFriendlyMessage =
+            'Authentication issue. Please try logging out and back in.';
+      } else if (e.toString().contains('timeout') ||
+          e.toString().contains('network')) {
+        userFriendlyMessage =
+            'Network connection issue. Please check your internet and try again.';
       } else {
-        userFriendlyMessage = 'Unable to start AI interview. Please try again or contact support if the issue persists.';
+        userFriendlyMessage =
+            'Unable to start AI interview. Please try again or contact support if the issue persists.';
       }
       _showError(userFriendlyMessage);
-      
+
       // Add fallback message to conversation log
       _addToConversationLog(
         ConversationEntry(
@@ -253,7 +300,7 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
     _statusTimer?.cancel();
     int consecutiveFailures = 0;
     const maxFailures = 5;
-    
+
     _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       try {
         print('🔄 Checking AI interview status...');
@@ -262,7 +309,7 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
         );
         final status = (res['status'] ?? '').toString().toLowerCase();
         final transcriptUrl = res['transcriptUrl']?.toString();
-        
+
         print('📊 AI Interview status: $status');
         consecutiveFailures = 0; // Reset failure count on success
 
@@ -283,13 +330,17 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
         }
       } catch (e) {
         consecutiveFailures++;
-        print('⚠️ Status check failed (${consecutiveFailures}/$maxFailures): $e');
-        
+        print(
+          '⚠️ Status check failed (${consecutiveFailures}/$maxFailures): $e',
+        );
+
         if (consecutiveFailures >= maxFailures) {
           _statusTimer?.cancel();
           print('❌ Too many status check failures, stopping polling');
           if (mounted) {
-            _showError('Lost connection to interview session. Please refresh and try again.');
+            _showError(
+              'Lost connection to interview session. Please refresh and try again.',
+            );
           }
         }
       }
@@ -564,6 +615,7 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
             },
           ),
           actions: [
+            // Show external join link if provided
             if (_webCallUrl != null) ...[
               TextButton.icon(
                 onPressed: _openWebCall,
@@ -574,6 +626,53 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
                 ),
               ),
             ],
+            // Fallback button to open embedded web view again if needed
+            if (!AppConfig.enableMocks)
+              TextButton.icon(
+                onPressed: () async {
+                  final status = await ApiServiceSingleton.instance
+                      .getAIInterviewStatus(widget.interview.id);
+                  if ((status['status'] ?? '') == 'ready_for_client_init') {
+                    final publicKey =
+                        status['publicKey']?.toString() ??
+                        AppConfig.vapiPublicKey;
+                    final assistantId =
+                        status['assistantId']?.toString() ??
+                        AppConfig.vapiAssistantId ??
+                        '';
+                    if (publicKey != null &&
+                        assistantId.isNotEmpty &&
+                        mounted) {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => VapiWebCallPage(
+                            publicKey: publicKey,
+                            assistantId: assistantId,
+                            metadata:
+                                (status['metadata'] as Map<String, dynamic>?) ??
+                                {},
+                            onCallEnded: () async {
+                              try {
+                                final st = await ApiServiceSingleton.instance
+                                    .getAIInterviewStatus(widget.interview.id);
+                                await _onInterviewCompleted(
+                                  transcriptUrl: st['transcriptUrl']
+                                      ?.toString(),
+                                );
+                              } catch (_) {}
+                            },
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.mic, color: Colors.orangeAccent),
+                label: const Text(
+                  'Open Web Interview',
+                  style: TextStyle(color: Colors.orangeAccent),
+                ),
+              ),
             IconButton(
               icon: const Icon(Icons.info_outline),
               onPressed: () => _showInstructionsDialog(),

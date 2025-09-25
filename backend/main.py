@@ -273,13 +273,21 @@ class AIInterviewStartResponse(BaseModel):
     status: str
     message: str
     webCallUrl: Optional[str] = None
+    # Optional fields for client-side web call initialization
+    assistantId: Optional[str] = None
+    publicKey: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 class AIInterviewStatusResponse(BaseModel):
     aiSessionId: str
-    status: str  # "pending", "in_progress", "completed", "failed"
+    status: str  # "pending", "in_progress", "completed", "failed", "ready_for_client_init"
     duration: Optional[int] = None
     transcriptUrl: Optional[str] = None
     audioRecordingUrl: Optional[str] = None
+    # Optional fields for client-side init during status phase
+    assistantId: Optional[str] = None
+    publicKey: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 class AIFeedbackResponse(BaseModel):
     interviewId: str
@@ -1223,12 +1231,24 @@ async def start_ai_interview(
             "updatedAt": now
         })
         
+        # Determine status and include client-side init data when applicable
+        resp_status = vapi_response.get("status", "in_progress")
+        public_key = vapi_response.get("publicKey") or os.getenv("VAPI_PUBLIC_KEY")
+        assistant_id = vapi_response.get("assistantId") or os.getenv("VAPI_ASSISTANT_ID")
+        metadata = vapi_response.get("metadata") or {
+            "interviewId": interview_id,
+            "userId": uid,
+        }
+
         return AIInterviewStartResponse(
             aiSessionId=ai_session_id,
             vapiCallId=call_id,
-            status="in_progress",
+            status=resp_status,
             message=vapi_response.get("message", "AI interview session started successfully"),
-            webCallUrl=vapi_response.get("webCallUrl")
+            webCallUrl=vapi_response.get("webCallUrl"),
+            assistantId=assistant_id,
+            publicKey=public_key,
+            metadata=metadata,
         )
     except HTTPException:
         raise
@@ -1300,7 +1320,10 @@ async def get_ai_interview_status(
                 status=status_val,
                 duration=duration_val,
                 transcriptUrl=transcript_url,
-                audioRecordingUrl=recording_url
+                audioRecordingUrl=recording_url,
+                assistantId=vapi_status.get("assistantId"),
+                publicKey=vapi_status.get("publicKey"),
+                metadata=vapi_status.get("metadata"),
             )
         else:
             return AIInterviewStatusResponse(

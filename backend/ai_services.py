@@ -346,18 +346,18 @@ class VapiInterviewService:
                     call_config["phoneNumberId"] = phone_number
                     print(f"[VAPI_START] Phone call mode with number: {phone_number}")
                 else:
-                    # For web calls, we need to use a different approach
-                    # Vapi may require the call to be initiated from the client side
-                    print(f"[VAPI_START] Web call mode - this may not be supported via server-side API")
-                    print(f"[VAPI_START] Web calls typically need to be initiated from client-side JavaScript SDK")
-                    
-                    # For now, return a mock response indicating client-side initiation needed
+                    # For web calls, Vapi requires client-side initiation using the Web SDK.
+                    # Return configuration needed by the client to initialize the call.
+                    print(f"[VAPI_START] Web call mode - returning client-side init config")
                     return {
+                        # Use a stable marker ID so the client knows this is a web client-side call
                         "callId": "web_call_client_side",
-                        "status": "client_side_required",
-                        "message": "Web calls must be initiated from client-side using Vapi JavaScript SDK",
+                        "status": "ready_for_client_init",
+                        "message": "Use this configuration to initialize web call from client-side",
                         "webCallUrl": None,
-                        "assistantId": call_config["assistantId"]
+                        "assistantId": call_config["assistantId"],
+                        "publicKey": os.getenv("VAPI_PUBLIC_KEY"),
+                        "metadata": call_config.get("metadata", {})
                     }
                 
                 response = await client.post(
@@ -459,8 +459,8 @@ class VapiInterviewService:
                 
                 # Determine status based on mock call type
                 if call_id == "web_call_client_side":
-                    status = "client_side_required"
-                    ended_reason = "Web calls must be initiated from client-side using Vapi JavaScript SDK"
+                    status = "ready_for_client_init"
+                    ended_reason = "Initialize from client using Vapi Web SDK"
                 elif "timeout" in call_id:
                     status = "timeout_error"
                     ended_reason = "Call timed out - Vapi API not responding"
@@ -474,7 +474,7 @@ class VapiInterviewService:
                     status = "mock_call"
                     ended_reason = "Mock call - Vapi integration not available"
                 
-                return {
+                result = {
                     "callId": call_id,
                     "status": status,
                     "duration": 300,
@@ -482,6 +482,15 @@ class VapiInterviewService:
                     "recordingUrl": None,
                     "endedReason": ended_reason
                 }
+                if call_id == "web_call_client_side":
+                    result.update({
+                        "assistantId": self.vapi_assistant_id,
+                        "publicKey": os.getenv("VAPI_PUBLIC_KEY"),
+                        "metadata": {
+                            "note": "client_init_required"
+                        }
+                    })
+                return result
             
             # Validate configuration before proceeding
             config_status = self.validate_configuration()

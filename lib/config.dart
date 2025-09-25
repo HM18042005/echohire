@@ -41,4 +41,10 @@ class AppConfig {
     final lower = v.toLowerCase();
     return lower == '1' || lower == 'true' || lower == 'yes';
   }
+
+  /// Vapi Web Public Key for client-side web calls
+  static String? get vapiPublicKey => dotenv.env['VAPI_PUBLIC_KEY'];
+
+  /// Optional assistant Id to scope calls
+  static String? get vapiAssistantId => dotenv.env['VAPI_ASSISTANT_ID'];
 }

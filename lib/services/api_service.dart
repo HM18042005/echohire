@@ -440,7 +440,18 @@ class ApiService {
           ); // Increased for Render cold start
 
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
+        final data = jsonDecode(response.body);
+        // Normalize keys for client-side web-call support
+        if (data is Map<String, dynamic>) {
+          final status = (data['status'] ?? '').toString();
+          if (status == 'ready_for_client_init') {
+            // Ensure presence of assistantId/publicKey/metadata
+            data['assistantId'] = data['assistantId'] ?? data['assistant_id'];
+            data['publicKey'] = data['publicKey'] ?? data['public_key'];
+            data['metadata'] = data['metadata'] ?? <String, dynamic>{};
+          }
+        }
+        return data;
       } else {
         throw ApiException(
           'Failed to start AI interview: ${response.statusCode}',
@@ -532,7 +543,10 @@ class ApiService {
       if (resp.statusCode == 200) {
         return jsonDecode(resp.body) as Map<String, dynamic>;
       }
-      throw ApiException('Failed to start workflow: ${resp.statusCode}', resp.statusCode);
+      throw ApiException(
+        'Failed to start workflow: ${resp.statusCode}',
+        resp.statusCode,
+      );
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException('Network error starting workflow: $e', 500);
@@ -556,7 +570,10 @@ class ApiService {
       if (resp.statusCode == 200) {
         return jsonDecode(resp.body) as Map<String, dynamic>;
       }
-      throw ApiException('Failed to process workflow message: ${resp.statusCode}', resp.statusCode);
+      throw ApiException(
+        'Failed to process workflow message: ${resp.statusCode}',
+        resp.statusCode,
+      );
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException('Network error sending workflow message: $e', 500);
@@ -573,7 +590,10 @@ class ApiService {
       if (resp.statusCode == 200) {
         return jsonDecode(resp.body) as Map<String, dynamic>;
       }
-      throw ApiException('Failed to fetch workflow summary: ${resp.statusCode}', resp.statusCode);
+      throw ApiException(
+        'Failed to fetch workflow summary: ${resp.statusCode}',
+        resp.statusCode,
+      );
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException('Network error fetching workflow summary: $e', 500);
@@ -589,23 +609,20 @@ class ApiService {
   }) async {
     final url = Uri.parse('$_baseUrl/workflow/$sessionId/finalize');
     try {
-      final body = <String, dynamic>{
-        'autoStart': autoStart,
-      };
+      final body = <String, dynamic>{'autoStart': autoStart};
       if (companyName != null) body['companyName'] = companyName;
       if (interviewDateIso != null) body['interviewDate'] = interviewDateIso;
 
       final resp = await _client
-          .post(
-            url,
-            headers: await _getAuthHeaders(),
-            body: jsonEncode(body),
-          )
+          .post(url, headers: await _getAuthHeaders(), body: jsonEncode(body))
           .timeout(const Duration(seconds: 60));
       if (resp.statusCode == 200) {
         return jsonDecode(resp.body) as Map<String, dynamic>;
       }
-      throw ApiException('Failed to finalize workflow: ${resp.statusCode}', resp.statusCode);
+      throw ApiException(
+        'Failed to finalize workflow: ${resp.statusCode}',
+        resp.statusCode,
+      );
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException('Network error finalizing workflow: $e', 500);
