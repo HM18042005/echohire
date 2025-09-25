@@ -73,6 +73,28 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           const assistantId = ${jsonEncode(widget.assistantId)};
           const metadata = ${jsonEncode(widget.metadata)};
 
+          // Capture global errors and unhandled promise rejections to aid debugging
+          window.onerror = function(message, source, lineno, colno, error) {
+            try {
+              const payload = {
+                type: 'window.onerror', message, source, lineno, colno,
+                error: error && { name: error.name, message: error.message, stack: error.stack }
+              };
+              if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) {
+                statusUpdate.postMessage('[VapiWebView] GlobalError: ' + JSON.stringify(payload));
+              }
+            } catch(_){}
+          };
+          window.addEventListener('unhandledrejection', function(ev){
+            try {
+              const reason = ev && (ev.reason || ev.detail || ev.message || ev);
+              const payload = { type: 'unhandledrejection', reason };
+              if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) {
+                statusUpdate.postMessage('[VapiWebView] UnhandledRejection: ' + (typeof reason === 'object' ? JSON.stringify(reason) : String(reason)));
+              }
+            } catch(_){}
+          });
+
           // Dynamically load Vapi SDK UMD build from CDN with fallbacks
           async function loadScript(src) {
             return new Promise((resolve, reject) => {
@@ -179,9 +201,38 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
             client = new VapiCtor({ publicKey });
           }
 
+          // Attach critical listeners BEFORE starting the call to avoid uncaught 'error' events
+          const logError = (label, e) => {
+            try {
+              const msg = (e && e.message) ? e.message : (typeof e === 'object' ? JSON.stringify(e) : String(e));
+              updateStatus(label + ': ' + msg, true);
+              if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) {
+                const details = {
+                  label,
+                  name: e && e.name,
+                  message: e && e.message,
+                  stack: e && e.stack,
+                  code: e && (e.code || e.error || e.type),
+                };
+                statusUpdate.postMessage('[VapiWebView] Error: ' + JSON.stringify(details));
+              }
+            } catch(_){}
+          };
+          client.on('error', (e) => logError('Error', e));
+          // Common additional events for deeper insight
+          try { client.on('warning', (e) => updateStatus('Warning: ' + (e && e.message ? e.message : e), true)); } catch(_){}
+          try { client.on('call-failed', (e) => logError('Call failed', e)); } catch(_){}
+          try { client.on('daily-error', (e) => logError('Daily error', e)); } catch(_){}
+
           updateStatus('Starting interview…');
           // Start the call: SDK expects assistantId (string). Metadata association is handled server-side.
-          const call = await client.start(assistantId);
+          let call;
+          try {
+            call = await client.start(assistantId);
+          } catch (e) {
+            logError('Start failed', e);
+            throw e; // ensure UI shows error state and button appears
+          }
           updateStatus('Interview started (ID: ' + (call && call.id ? call.id : 'unknown') + ')', true);
 
           // Notify Flutter about the real callId so it can send to backend
@@ -195,7 +246,6 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
           client.on('speech-start', () => updateStatus('Listening…', true));
           client.on('speech-end', () => updateStatus('Processing your response…', true));
           client.on('call-end', () => { updateStatus('Interview completed.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) { callEnded.postMessage('done'); } });
-          client.on('error', (e) => { updateStatus('Error: ' + (e && e.message ? e.message : e)); endBtn.style.display='inline-block'; endBtn.disabled=false; });
 
           endBtn.onclick = async () => { try { endBtn.disabled=true; updateStatus('Ending…'); await client.stop(); updateStatus('Ended.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) { callEnded.postMessage('ended'); } } catch(e){ updateStatus('Failed to end: ' + (e && e.message ? e.message : e)); endBtn.disabled=false; } };
         } catch (e){ updateStatus('Error: ' + (e && e.message ? e.message : e)); endBtn.style.display='inline-block'; endBtn.disabled=false; }

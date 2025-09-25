@@ -70,7 +70,11 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
   void initState() {
     super.initState();
     _initializeAnimations();
-    _initializeAudio();
+    // Only initialize local audio (recorder/TTS) in mock mode to avoid
+    // conflicting with the WebView-based Vapi call microphone access.
+    if (AppConfig.enableMocks) {
+      _initializeAudio();
+    }
     _startInterview();
   }
 
@@ -167,12 +171,13 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
       ),
     );
 
-    await _speakText(
-      'Welcome to your AI interview practice session! I\'ll be asking you questions about the ${widget.interview.jobTitle} position. Let\'s begin.',
-    );
-
-    await Future.delayed(const Duration(seconds: 2));
+    // Speak and proceed with mock flow only in mock mode
     if (AppConfig.enableMocks) {
+      await _speakText(
+        'Welcome to your AI interview practice session! I\'ll be asking you questions about the ${widget.interview.jobTitle} position. Let\'s begin.',
+      );
+
+      await Future.delayed(const Duration(seconds: 2));
       _askNextQuestion();
     }
   }
@@ -733,10 +738,11 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
   }
 
   Widget _buildInstructions() {
-    return Padding(
+    // Make instructions scrollable to avoid RenderFlex overflow on small screens.
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.start,
         children: [
           const Icon(Icons.school, size: 80, color: Colors.blue),
           const SizedBox(height: 24),
