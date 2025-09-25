@@ -1,614 +1,715 @@
-# EchoHire - AI-Powered Interview Platform
+# Vapi CLI
 
-<div align="center">
+The official command-line interface for [Vapi](https://vapi.ai) - Voice AI for developers.
 
-🎯 **Modern AI-driven interview management with real-time voice analysis and automated feedback**
+## Features
 
-[![Flutter](https://img.shields.io/badge/Flutter-3.9.0+-02569B?logo=flutter)](https://flutter.dev)
-[![Python](https://img.shields.io/badge/Python-3.13+-3776AB?logo=python)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-Latest-009688?logo=fastapi)](https://fastapi.tiangolo.com)
-[![Firebase](https://img.shields.io/badge/Firebase-Latest-FFCA28?logo=firebase)](https://firebase.google.com)
+- 🔐 **Authentication Management** - Secure OAuth login, logout, and account switching
+- 🤖 **Assistant Management** - List, create, update, and delete voice assistants
+- 💬 **Chat Management** - Text-based conversations and chat history
+- 📞 **Enhanced Call Management** - Full call lifecycle control and monitoring
+- 📱 **Phone Number Management** - Purchase, configure, and manage phone numbers
+- 🔄 **Workflow Management** - Manage visual conversation flows and branching logic
+- 📣 **Campaign Management** - Create and manage AI phone call campaigns at scale
+- 🛠️ **Tool Management** - Custom functions and API integrations
+- 🔗 **Webhook Management** - Configure and manage real-time event delivery
+- 🎧 **Webhook Testing** - Local webhook forwarding without ngrok
+- 📋 **Logs & Debugging** - System logs, call logs, and error tracking
+- 🔧 **Project Integration** - Auto-detect and integrate with existing projects
+- 🚀 **Framework Support** - React, Vue, Angular, Next.js, Node.js, Python, Go, and more
+- 📦 **SDK Installation** - Automatic SDK setup for your project type
+- 🎨 **Code Generation** - Generate components, hooks, and examples
+- ⬆️ **Auto-Updates** - Keep your CLI up-to-date with the latest features
 
-</div>
+## Installation
 
-## 📌 Project Status (2025-09-24)
+### Unix/Linux/macOS
 
-### ✅ What’s Completed
-- Backend (FastAPI)
-  - Firebase ID token verification with mock fallbacks in dev and robust Firestore timeouts.
-  - Interviews API: create/list/get; health checks (/health, /health/db, /health/vapi).
-  - AI endpoints: start AI interview, status polling, AI feedback generation (Gemini), stop AI.
-  - Vapi integration: start phone/web calls, persist vapiCallId/webCallUrl/aiSessionId; transcript and recording retrieval; webhook at /webhooks/vapi with optional HMAC verification (VAPI_WEBHOOK_SECRET).
-  - Optional auto-feedback (AUTO_GENERATE_AI_FEEDBACK=1) to analyze transcripts with Gemini and persist feedback/overallScore.
-- Flutter app (matching dark/blue theme)
-  - Auth flow, Home dashboard, Interviews tab with filters, manual NewInterview form, Interview detail and results.
-  - AIInterviewScreen: opens webCallUrl in browser, polls status, stores transcript to Firestore on completion, stop-ai on dispose.
-  - New Guided Setup (AI) flow: WorkflowSetupScreen chats to collect role/type/level; finalize creates an Interview and auto-starts Vapi; navigates to AIInterviewScreen.
-  - API client methods for workflow: start, message, summary, finalize.
-- Infrastructure/config
-  - Env-driven config across app and backend; emulator-safe BASE_URL; WARP.md for repo guidance.
-
-### 🔜 What’s Remaining
-- Voice UX
-  - Optional in-app audio streaming to Vapi (instead of webCallUrl) if required by product scope.
-- Webhooks and reliability
-  - Confirm exact Vapi signature header; add idempotency keys and replay protection; structured logging with request IDs.
-  - Retry/backoff and circuit-breakers around Vapi/Gemini/httpx calls; tune timeouts.
-- Observability and QA
-  - E2E tests for workflow→finalize→start Vapi; contract tests with a Vapi mock; load tests for Firestore-heavy paths.
-  - Error monitoring (e.g., Sentry) and metrics dashboards; trace spans over key endpoints.
-- CI/CD and deployment hardening
-  - GitHub Actions pipelines (lint/test/build for Flutter and Python; artifacts; app bundle/apk). 
-  - Backend containerization and deployment (e.g., Cloud Run/Render) behind HTTPS; strict CORS; secrets from env.
-- Security and data
-  - Firestore security rules review; rate limiting and CORS tightening; PII handling; cleanup policies for transcripts/recordings.
-- UX polish
-  - Subscribe to Firestore interview doc in AIInterviewScreen (in addition to polling) to reflect webhook updates faster.
-  - Better failure messaging and recovery (retry join, degraded modes), offline fallbacks where useful.
-- Platform
-  - iOS support if needed; store permissions and entitlements; build/test lanes.
-
-### 🧭 How To Finish (Suggested Steps)
-1) Production configuration
-   - Ensure these env vars are set in the backend runtime: VAPI_API_KEY, GOOGLE_AI_API_KEY, FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_JSON_BASE64, BACKEND_PUBLIC_URL (https), VAPI_WEBHOOK_SECRET, AUTO_GENERATE_AI_FEEDBACK=1 (optional).
-   - Lock down CORS to your app origins; set DEBUG=false.
-2) Deploy backend
-   - Containerize FastAPI and deploy behind HTTPS (e.g., Cloud Run). Point BACKEND_PUBLIC_URL to the public base URL.
-   - Configure Vapi to call BACKEND_PUBLIC_URL/webhooks/vapi with the shared secret.
-3) Wire observability and tests
-   - Add Sentry/Stackdriver logging; write E2E covering workflow→finalize→Vapi start→webhook completion→feedback.
-   - Add retry/backoff wrappers (httpx) and unit tests for error paths.
-4) App build and release
-   - Set .env.production BASE_URL=https://your-backend and ENABLE_MOCKS=false.
-   - Android: flutter build appbundle --release --dart-define=ENV=prod (ensure signing config set). iOS: set up if required.
-5) Optional enhancements
-   - In-app audio streaming to Vapi and Firestore listeners for near-real-time UI.
-
-For more details and code references, see this repository’s docs and sources:
-- WARP.md (agent rules and common commands)
-- backend/main.py, backend/ai_services.py, backend/vapi_workflows.py (API, Vapi, workflow)
-- lib/screens/* (Flutter UI), lib/services/api_service.dart (API client), lib/config.dart (env)
-- SETUP_GUIDE.md, PHASE_1_COMPLETE.md
-
-## 🚀 Overview
-
-EchoHire is a comprehensive AI-powered interview platform that combines Flutter mobile technology with advanced AI services to revolutionize the interview process. The platform features live AI-conducted interviews, real-time transcript analysis, and automated candidate evaluation.
-
-### Key Features
-- 🤖 **Live AI Interviews** - Vapi-powered voice AI conducts interviews
-- 📝 **Real-time Transcription** - Automatic speech-to-text with Firestore storage
-- 🧠 **Gemini AI Analysis** - Comprehensive candidate evaluation and insights
-- 🎨 **Modern UI** - Dark-themed Material Design interface
-- 🔐 **Secure Authentication** - Firebase Auth with token-based API protection
-- 📊 **Comprehensive Analytics** - Detailed feedback and scoring system
-
-## 📋 Project Status
-
-### ✅ Production-Ready Features
-
-#### 🔐 Authentication & Security
-- Firebase Authentication with secure token validation
-- User profile management with Riverpod state management
-- Protected API endpoints with Firebase ID token verification
-
-#### 🎨 User Interface
-- Modern dark theme (`#181A20` background, `#2972FF` primary)
-- Complete screen stack: Login, Signup, Home, Profile, Interview Management
-- Responsive design with Material Design components
-- Status indicators and real-time visual feedback
-
-#### 🤖 AI Integration (Live)
-- **Vapi Integration**: Real AI-conducted interviews via web calls
-- **Environment-Driven**: Mock/live modes controlled by `ENABLE_MOCKS` flag
-- **Gemini Analysis**: Automated transcript analysis with scoring and insights
-- **Real-time Status**: Live polling of interview completion status
-- **Transcript Storage**: Automatic Firestore persistence of interview transcripts
-
-#### 🗄️ Backend Infrastructure
-```
-FastAPI Server with comprehensive endpoints:
-├── Authentication & Profiles
-│   ├── GET/PUT /me - User profile management
-├── Interview Management  
-│   ├── POST/GET /interviews - Persistent interview records
-│   ├── GET /interviews/{id} - Individual interview details
-│   ├── POST/GET /interviews/{id}/feedback - Feedback management
-├── AI Interview System
-│   ├── POST /api/generate-interview - Generate question sets
-│   ├── GET /api/interviews/{user_id} - List AI sessions
-│   ├── POST /interviews/{id}/start-ai - Start live AI interview
-│   ├── GET /interviews/{id}/ai-status - Real-time status polling
-│   ├── GET /interviews/{id}/ai-feedback - Generated AI insights
-│   └── POST /interviews/{id}/stop-ai - Stop active sessions
-└── Health & Monitoring
-    └── GET /health - Server health check
+```bash
+curl -sSL https://vapi.ai/install.sh | bash
 ```
 
-#### 📱 Mobile App Features
-- Interview creation and management
-- Live AI interview participation with \"Join AI Call\" links
-- Real-time status monitoring during interviews
-- Results viewing with AI-generated feedback
-- Transcript display from Firestore storage
-- Environment-based configuration (`.env` files)
+### Windows
 
-### 🔄 Current Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Flutter Mobile App                       │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   Screens   │  │    State    │  │      Services       │  │
-│  │             │  │ (Riverpod)  │  │                     │  │
-│  │ • Login     │  │             │  │ • ApiService        │  │
-│  │ • Home      │◄─┤ • Profile   │  │ • AuthService       │  │
-│  │ • AI Inter. │  │ • Interview │  │ • AppConfig (.env)  │  │
-│  │ • Results   │  │ • Feedback  │  │                     │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                              │ HTTP/Firebase
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   FastAPI Backend                           │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │    API      │  │    AI       │  │     Firebase        │  │
-│  │ Endpoints   │  │ Services    │  │   Integration       │  │
-│  │             │  │             │  │                     │  │
-│  │ • /me       │  │ • Gemini    │◄─┤ • Admin SDK         │  │
-│  │ • /interviews│  │ • Vapi     │  │ • Firestore         │  │
-│  │ • /ai-*     │  │ • Analysis  │  │ • Auth Verification │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                External AI Services                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   Google    │  │    Vapi     │  │     Firebase        │  │
-│  │   Gemini    │  │Voice AI API │  │   Cloud Services    │  │
-│  │             │  │             │  │                     │  │
-│  │ • Analysis  │  │ • Calls     │  │ • Authentication    │  │
-│  │ • Scoring   │  │ • Transcript│  │ • Firestore DB      │  │
-│  │ • Insights  │  │ • Recording │  │ • Real-time Sync    │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 🛠️ Technology Stack
-
-### Frontend (Flutter App)
-- **Framework**: Flutter 3.9.0+ with Dart
-- **State Management**: Riverpod 2.4.9 for reactive state
-- **Authentication**: Firebase Auth with secure token handling
-- **HTTP Client**: Native `http` package with custom API service
-- **Configuration**: `flutter_dotenv` for environment management
-- **Audio/Voice**: `flutter_sound`, `flutter_tts` for interview features
-- **Permissions**: `permission_handler` for microphone access
-- **UI**: Material Design 3 with custom dark theme
-
-### Backend (Python API)
-- **Framework**: FastAPI with Pydantic validation
-- **Server**: Uvicorn ASGI server
-- **Database**: Firebase Firestore (NoSQL)
-- **Authentication**: Firebase Admin SDK
-- **AI Services**: 
-  - Google Gemini Pro for analysis
-  - Vapi for voice AI interviews
-- **HTTP Client**: `httpx` for async external API calls
-- **Configuration**: `python-dotenv` for environment management
-
-### Infrastructure & Services
-- **Authentication**: Firebase Authentication
-- **Database**: Firebase Firestore with real-time sync
-- **AI Analysis**: Google Gemini Pro API
-- **Voice AI**: Vapi voice interview platform
-- **Storage**: Firestore for transcripts, Firebase Storage (future)
-- **Deployment**: Local development, production-ready architecture
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Flutter 3.9.0+ SDK
-- Python 3.13+ with pip
-- Firebase project with Authentication and Firestore enabled
-- Google AI API key (Gemini)
-- Vapi API key for voice interviews
-
-### 1. Clone & Setup
 ```powershell
-git clone https://github.com/yourusername/echohire.git
-cd echohire
+iex ((New-Object System.Net.WebClient).DownloadString('https://vapi.ai/install.ps1'))
 ```
 
-### 2. Backend Setup
-```powershell
-# Navigate to backend
-cd backend
+Both scripts automatically detect your platform and install the latest version.
 
-# Create and activate virtual environment (Windows)
-python -m venv .venv
-.\.venv\\Scripts\\Activate.ps1
+### Docker
+
+```bash
+# Run directly
+docker run -it ghcr.io/vapiai/cli:latest --help
+
+# Or with persistent config
+docker run -it -v ~/.vapi-cli.yaml:/home/vapi/.vapi-cli.yaml ghcr.io/vapiai/cli:latest assistant list
+```
+
+### Manual Download
+
+Download pre-built binaries from [GitHub Releases](https://github.com/VapiAI/cli/releases):
+
+```bash
+# macOS/Linux
+curl -sSL https://github.com/VapiAI/cli/releases/latest/download/cli_$(uname -s)_$(uname -m).tar.gz | tar xz
+sudo mv vapi /usr/local/bin
+
+# Or download specific version
+curl -sSL https://github.com/VapiAI/cli/releases/download/v0.0.6/cli_Darwin_arm64.tar.gz | tar xz
+```
+
+### From Source
+
+```bash
+# Clone the repository
+git clone https://github.com/VapiAI/cli.git
+cd cli
 
 # Install dependencies
-pip install -r requirements.txt
+make deps
 
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your API keys:
-# - GOOGLE_AI_API_KEY=your_gemini_key
-# - VAPI_API_KEY=your_vapi_key
+# Build the CLI
+make build
 
-# Add Firebase service account
-# Place firebase-service-account.json in backend/
-
-# Start server
-python main.py
-```
-Backend runs at: `http://localhost:8000`
-
-### 3. Flutter App Setup
-```powershell
-# Return to project root
-cd ..
-
-# Install Flutter dependencies
-flutter pub get
-
-# Configure Firebase
-# Place android/app/google-services.json
-# Update lib/firebase_options.dart
-
-# Configure environment for development
-# Edit .env for local development:
-# BASE_URL=http://10.0.2.2:8000  # Android emulator
-# ENABLE_MOCKS=false              # Use live AI services
-
-# Run the app
-flutter run
-# For device testing with real backend:
-flutter run --dart-define=ENV=device
+# Install to ~/.local/bin
+make install
 ```
 
-### 4. Environment Configuration
+## Development Requirements
 
-The app supports multiple environments through `.env` files:
+- **Go 1.21+** - [Install Go](https://golang.org/doc/install)
+- **golangci-lint** - For code linting
 
-#### `.env` (Development)
-```env
-BASE_URL=http://10.0.2.2:8000
-ENABLE_MOCKS=false
+  ```bash
+  # macOS
+  brew install golangci-lint
+
+  # Linux/Windows
+  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+  ```
+
+## Usage
+
+### Authentication
+
+First, authenticate with your Vapi account:
+
+```bash
+vapi login
 ```
 
-#### `.env.device` (Device Testing)
-```env
-BASE_URL=http://192.168.1.100:8000  # Your PC's LAN IP
-ENABLE_MOCKS=false
+This will open your browser for secure authentication. Your API key will be saved locally.
+
+#### Managing Authentication
+
+For users who work with multiple organizations or need to switch accounts:
+
+```bash
+# Check current authentication status and list all accounts
+vapi auth status
+
+# Switch between multiple authenticated accounts
+vapi auth switch [account-name]
+
+# View current API key and source
+vapi auth token
+
+# View current user and organization info
+vapi auth whoami
+
+# Add another account (keeping existing ones)
+vapi auth login
+
+# Logout from current account
+vapi auth logout
+
+# Logout from all accounts
+vapi auth logout --all
 ```
 
-#### `.env.production` (Production)
-```env
-BASE_URL=https://api.yourdomain.com
-ENABLE_MOCKS=false
+The CLI supports **multiple accounts** simultaneously, similar to GitHub CLI. This is perfect for:
+
+- Working with multiple Vapi organizations
+- Switching between production and staging environments
+- Managing different client accounts
+- Team collaboration with role-specific access
+
+### Assistant Management
+
+```bash
+# List all assistants
+vapi assistant list
+
+# Get assistant details
+vapi assistant get <assistant-id>
+
+# Create a new assistant (interactive)
+vapi assistant create
+
+# Delete an assistant
+vapi assistant delete <assistant-id>
 ```
 
-Use with: `flutter run --dart-define=ENV=device` or `ENV=production`
+### Workflow Management
 
-## 🎯 Usage Guide
+```bash
+# List all workflows
+vapi workflow list
 
-### For Interviewers
-1. **Sign Up/Login**: Create account or log in with existing credentials
-2. **Create Interview**: Add job details, company, and schedule
-3. **Start AI Interview**: Launch live AI-conducted interview session
-4. **Monitor Progress**: Real-time status updates during interview
-5. **Review Results**: View AI-generated feedback, scores, and transcript
+# Get workflow details
+vapi workflow get <workflow-id>
 
-### Interview Flow
-```
-Create Interview → Start AI Session → Join AI Call → Interview Completion → Results & Analysis
-      ↓                ↓              ↓                    ↓                    ↓
-   Firestore       Vapi API      Browser/App        Status Polling      Gemini Analysis
+# Create a new workflow (basic)
+vapi workflow create
+
+# Delete a workflow
+vapi workflow delete <workflow-id>
 ```
 
-### For Candidates
-1. Receive interview link from interviewer
-2. Join AI-powered voice interview
-3. Participate in structured Q&A session
-4. Automatic transcript and analysis generation
+**Note**: For visual workflow building with nodes and edges, use the [Vapi Dashboard](https://dashboard.vapi.ai/workflows).
 
-## 🔧 Configuration
+### Campaign Management
 
-### Environment Variables
+```bash
+# List all campaigns
+vapi campaign list
 
-#### Backend (`backend/.env`)
-```env
-# AI Service Keys (Required)
-GOOGLE_AI_API_KEY=your_gemini_api_key_here
-VAPI_API_KEY=your_vapi_private_key_here
+# Get campaign details
+vapi campaign get <campaign-id>
 
-# Firebase Configuration
-FIREBASE_PROJECT_ID=your_firebase_project_id
+# Create a new campaign
+vapi campaign create
 
-# Server Configuration
-DEBUG=True
-HOST=0.0.0.0
-PORT=8000
+# Update/end a campaign
+vapi campaign update <campaign-id>
+
+# Delete a campaign
+vapi campaign delete <campaign-id>
 ```
 
-#### Frontend (`.env` files)
-```env
-# API Configuration
-BASE_URL=http://10.0.2.2:8000
+**Note**: For advanced campaign features (customer lists, scheduling), use the [Vapi Dashboard](https://dashboard.vapi.ai).
 
-# Feature Flags
-ENABLE_MOCKS=false  # Set to true for offline development
+### Project Integration
+
+Initialize Vapi in your existing project:
+
+```bash
+# Auto-detect project type and set up Vapi
+vapi init
+
+# Initialize in a specific directory
+vapi init /path/to/project
 ```
 
-### Firebase Setup
-1. Create Firebase project with Authentication and Firestore
-2. Enable Email/Password authentication
-3. Download `google-services.json` for Android
-4. Download service account JSON for backend
-5. Configure Firestore security rules
+The `init` command will:
 
-### API Keys Setup
-1. **Google AI (Gemini)**: Get key from [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. **Vapi**: Register at [Vapi.ai](https://vapi.ai) and get API keys
-3. **Firebase**: Service account from Firebase Console
+- Detect your project framework/language
+- Install the appropriate Vapi SDK
+- Generate example code and components
+- Create environment configuration templates
 
-## 🏗️ Project Structure
+### MCP Integration - Turn Your IDE into a Vapi Expert
 
-```
-echohire/
-├── 📱 lib/                          # Flutter app source
-│   ├── 🎨 screens/                  # UI screens
-│   │   ├── login_screen.dart
-│   │   ├── home_screen.dart
-│   │   ├── ai_interview_screen.dart # Live AI interview UI
-│   │   ├── interview_results_screen.dart
-│   │   └── ...
-│   ├── 🔄 state/                    # Riverpod controllers
-│   │   ├── profile_controller.dart
-│   │   ├── interview_controller.dart
-│   │   └── feedback_controller.dart
-│   ├── 🛠️ services/                 # API and utilities
-│   │   ├── api_service.dart         # HTTP client
-│   │   └── auth_service.dart        # Firebase auth
-│   ├── 📊 models/                   # Data models
-│   │   ├── interview.dart
-│   │   ├── user_profile.dart
-│   │   └── interview_feedback.dart
-│   ├── ⚙️ config.dart               # Environment configuration
-│   └── 🚀 main.dart                 # App entry point
-├── 🐍 backend/                      # FastAPI server
-│   ├── 🎯 main.py                   # FastAPI application
-│   ├── 🤖 ai_services.py            # Gemini & Vapi integration
-│   ├── 📋 requirements.txt          # Python dependencies
-│   ├── 🔑 .env                      # Environment variables
-│   └── 📜 firebase-service-account.json
-├── 🤖 android/                      # Android configuration
-│   ├── 📦 app/build.gradle.kts      # Build configuration
-│   ├── 🔑 app/google-services.json  # Firebase config
-│   └── 🔒 keystore.properties.example
-├── ⚙️ Configuration files
-│   ├── .env                         # Development environment
-│   ├── .env.device                  # Device testing environment  
-│   ├── .env.production              # Production environment
-│   └── .env.example                 # Template
-└── 📚 Documentation
-    ├── README.md                    # This file
-    ├── SETUP_GUIDE.md              # Detailed setup instructions
-    └── PHASE_1_COMPLETE.md         # Development milestones
+Set up Model Context Protocol (MCP) integration to give your IDE's AI assistant complete knowledge about Vapi:
+
+```bash
+# Auto-detect and configure all IDEs
+vapi mcp setup
+
+# Configure a specific IDE
+vapi mcp setup cursor   # For Cursor
+vapi mcp setup windsurf # For Windsurf
+vapi mcp setup vscode   # For VSCode
+
+# Check configuration status
+vapi mcp status
 ```
 
-## 🧪 Development
+Once configured, your IDE's AI assistant will have access to:
 
-### Running Tests
-```powershell
-# Flutter tests
-flutter test
+- **Complete Vapi Documentation** - No more hallucinated API info
+- **Code Examples & Templates** - Real working examples
+- **Best Practices & Guides** - Expert-level implementation patterns
+- **Latest Features** - Always up-to-date with new releases
 
-# Backend tests (if available)
-cd backend
-python -m pytest
+**Supported IDEs:**
+
+- [Cursor](https://cursor.sh) - AI-powered code editor
+- [Windsurf](https://codeium.com/windsurf) - Codeium's AI IDE
+- [VSCode](https://code.visualstudio.com) - With GitHub Copilot
+
+**What this does:**
+
+- Configures your IDE to use the Vapi MCP docs server
+- Creates appropriate configuration files (`.cursor/mcp.json`, etc.)
+- Eliminates AI hallucination about Vapi features and APIs
+- Enables intelligent code suggestions specific to Vapi
+
+Try asking your IDE's AI: _"How do I create a voice assistant with Vapi?"_ and watch it provide accurate, up-to-date information!
+
+### Configuration
+
+```bash
+# View current configuration
+vapi config get
+
+# Set configuration values
+vapi config set <key> <value>
+
+# List all configuration options
+vapi config list
+
+# Manage analytics preferences
+vapi config analytics status   # Show current analytics status
+vapi config analytics disable  # Disable analytics collection
+vapi config analytics enable   # Enable analytics collection
+```
+
+#### Analytics and Privacy
+
+The Vapi CLI collects anonymous usage analytics to help improve the product. **We prioritize your privacy**:
+
+**What we collect:**
+
+- Command usage patterns (anonymous)
+- Error types and frequencies (hashed)
+- Performance metrics
+- Operating system and architecture
+- CLI version information
+
+**What we DON'T collect:**
+
+- API keys or sensitive credentials
+- File contents or personal data
+- User-identifiable information
+- Specific error messages (only hashed patterns)
+
+**How to opt out:**
+
+You can disable analytics collection in multiple ways:
+
+```bash
+# Via CLI command
+vapi config analytics disable
+
+# Via environment variable (any of these)
+export VAPI_DISABLE_ANALYTICS=1
+export VAPI_NO_TELEMETRY=1
+export DISABLE_TELEMETRY=1
+export DO_NOT_TRACK=1
+
+# Via config file
+echo "disable_analytics: true" >> ~/.vapi-cli.yaml
+```
+
+All data is collected anonymously and securely transmitted to PostHog for analysis.
+
+### Chat Management
+
+Manage text-based chat conversations with Vapi assistants:
+
+```bash
+# List all chat conversations
+vapi chat list
+
+# Get chat conversation details
+vapi chat get <chat-id>
+
+# Create a new chat (guided setup)
+vapi chat create
+
+# Continue an existing chat conversation
+vapi chat continue <chat-id> "Your message here"
+
+# Delete a chat conversation
+vapi chat delete <chat-id>
+```
+
+### Phone Number Management
+
+Manage your Vapi phone numbers for calls:
+
+```bash
+# List all phone numbers
+vapi phone list
+
+# Get phone number details
+vapi phone get <phone-number-id>
+
+# Purchase a new phone number (guided)
+vapi phone create
+
+# Update phone number configuration
+vapi phone update <phone-number-id>
+
+# Release a phone number
+vapi phone delete <phone-number-id>
+```
+
+### Enhanced Call Management
+
+Enhanced call operations and monitoring:
+
+```bash
+# List all calls
+vapi call list
+
+# Get call details
+vapi call get <call-id>
+
+# Create a new call (guided)
+vapi call create
+
+# Update a call in progress
+vapi call update <call-id>
+
+# End an active call
+vapi call end <call-id>
+```
+
+### Logs and Debugging
+
+View system logs for debugging and monitoring:
+
+```bash
+# List recent system logs
+vapi logs list
+
+# View call-specific logs
+vapi logs calls [call-id]
+
+# View recent error logs
+vapi logs errors
+
+# View webhook delivery logs
+vapi logs webhooks
+```
+
+### Tool Management
+
+Manage custom tools and functions that connect your voice agents to external APIs:
+
+```bash
+# List all tools
+vapi tool list
+
+# Get tool details
+vapi tool get <tool-id>
+
+# Create a new tool (guided)
+vapi tool create
+
+# Update tool configuration
+vapi tool update <tool-id>
+
+# Delete a tool
+vapi tool delete <tool-id>
+
+# Test a tool with sample input
+vapi tool test <tool-id>
+
+# List available tool types
+vapi tool types
+```
+
+### Webhook Management
+
+Manage webhook endpoints and configurations for real-time event delivery:
+
+```bash
+# List all webhook endpoints
+vapi webhook list
+
+# Get webhook details
+vapi webhook get <webhook-id>
+
+# Create a new webhook endpoint
+vapi webhook create [url]
+
+# Update webhook configuration
+vapi webhook update <webhook-id>
+
+# Delete a webhook endpoint
+vapi webhook delete <webhook-id>
+
+# Test a webhook endpoint
+vapi webhook test <webhook-id>
+
+# List available webhook event types
+vapi webhook events
+```
+
+### Webhook Testing
+
+Test your webhook integrations locally without needing ngrok or other tunneling tools:
+
+```bash
+# Forward webhooks to your local development server
+vapi listen --forward-to localhost:3000/webhook
+
+# Use a different port for the webhook listener
+vapi listen --forward-to localhost:8080/api/webhooks --port 4242
+
+# Skip TLS verification (for development only)
+vapi listen --forward-to localhost:3000/webhook --skip-verify
+```
+
+The `listen` command will:
+
+- Start a local webhook server (default port 4242)
+- Forward all incoming Vapi webhooks to your specified endpoint
+- Display webhook events in real-time for debugging
+- Add helpful headers to identify forwarded requests
+
+### Staying Updated
+
+Keep your CLI up-to-date with the latest features and bug fixes:
+
+```bash
+# Check for available updates
+vapi update check
+
+# Update to the latest version
+vapi update
+```
+
+The CLI will automatically check for updates periodically and notify you when a new version is available.
+
+## Project Structure
+
+This is a **monorepo** containing both the Go CLI and the TypeScript MCP server:
+
+```
+vapi-cli/                          # 🏠 Main repository
+├── cmd/                           # Go CLI command implementations
+│   ├── root.go                   # Main CLI setup & auth
+│   ├── assistant.go              # Assistant management
+│   ├── workflow.go               # Workflow commands
+│   ├── campaign.go               # Campaign management
+│   ├── call.go                   # Call operations
+│   ├── config.go                 # Configuration
+│   ├── init.go                   # Project integration
+│   ├── mcp.go                    # MCP server setup ✨
+│   └── login.go                  # Authentication
+├── pkg/                          # Go core packages
+│   ├── auth/                     # Authentication logic
+│   ├── client/                   # Vapi API client
+│   ├── config/                   # Configuration management
+│   ├── integrations/             # Framework detection
+│   └── output/                   # Output formatting
+├── mcp-docs-server/              # 📦 MCP Server (TypeScript)
+│   ├── src/                      # TypeScript source
+│   │   ├── index.ts              # MCP server entry point
+│   │   ├── server.ts             # Core server logic
+│   │   ├── tools/                # MCP tools (5 tools)
+│   │   ├── resources/            # MCP resources
+│   │   └── utils/                # Utilities & data
+│   ├── dist/                     # Built JavaScript
+│   ├── package.json              # npm package config
+│   └── README.md                 # MCP server docs
+├── build/                        # Build artifacts (git-ignored)
+├── main.go                       # Go CLI entry point
+├── Makefile                      # Unified build system ⚡
+└── README.md                     # This file
+```
+
+### Monorepo Benefits
+
+- **🔄 Synchronized Development** - CLI and MCP server stay in sync
+- **📦 Single Source of Truth** - All Vapi tooling in one place
+- **🚀 Unified Build System** - `make all` builds everything
+- **🎯 Consistent Versioning** - CLI and MCP server versions aligned
+
+## Development
+
+This monorepo includes both Go (CLI) and TypeScript (MCP server) components. The unified Makefile handles both.
+
+### Quick Start
+
+```bash
+# Build everything (CLI + MCP server)
+make all
+
+# Install everything locally
+make install-all
+
+# Test everything
+make test-all
+
+# Clean everything
+make clean-all
+```
+
+### Building
+
+#### CLI (Go)
+
+```bash
+# Build CLI only
+make build
+
+# Build for all platforms
+make build-all
+
+# Run without building
+go run main.go
+```
+
+#### MCP Server (TypeScript)
+
+```bash
+# Build MCP server only
+make build-mcp
+
+# Install MCP server globally
+make install-mcp
+
+# Publish to npm
+make publish-mcp
+```
+
+### Development Requirements
+
+- **Go 1.21+** - [Install Go](https://golang.org/doc/install)
+- **Node.js 18+** - [Install Node.js](https://nodejs.org/)
+- **golangci-lint** - For Go code linting
+- **npm** - For MCP server dependencies
+
+```bash
+# macOS
+brew install go node golangci-lint
+
+# Install dependencies for both projects
+make deps-all
+```
+
+### Testing
+
+```bash
+# Run all tests
+make test
+
+# Run tests with coverage
+make test-coverage
 ```
 
 ### Code Quality
-```powershell
-# Flutter analysis
-flutter analyze
 
-# Python linting
-cd backend
-flake8 .
-```
-
-### Building for Production
-```powershell
-# Android APK
-flutter build apk --release --dart-define=ENV=production
-
-# Android App Bundle (Play Store)
-flutter build appbundle --release --dart-define=ENV=production
-```
-
-## 🔐 Security & Privacy
-
-### Data Protection
-- All API endpoints require Firebase authentication
-- User data is isolated by Firebase UID
-- Interview transcripts stored securely in Firestore
-- API keys and secrets managed via environment variables
-
-### Permissions
-- **Microphone**: Required for interview recording
-- **Internet**: API communication and Firebase sync
-- **Network State**: Connection status monitoring
-
-### Privacy Considerations
-- Interview recordings processed by Vapi and Gemini AI
-- Transcripts stored in your Firebase project
-- No data shared with third parties beyond AI processing
-- Users control their data through Firebase Authentication
-
-## 🚀 Deployment
-
-### Backend Deployment Options
-
-#### Option 1: Cloud Run (Google Cloud)
-```dockerfile
-# Dockerfile example
-FROM python:3.13-slim
-WORKDIR /app
-COPY backend/ .
-RUN pip install -r requirements.txt
-CMD [\"python\", \"main.py\"]
-```
-
-#### Option 2: Railway/Render
-- Push backend/ to Git repository
-- Configure environment variables in platform dashboard
-- Deploy automatically on push
-
-#### Option 3: VPS/Dedicated Server
 ```bash
-# Ubuntu/Debian setup
-sudo apt update
-sudo apt install python3 python3-pip nginx certbot
-# Configure reverse proxy and SSL
+# Run linters
+make lint
+
+# Format code
+go fmt ./...
 ```
 
-### Mobile App Distribution
-
-#### Internal Testing
-```powershell
-# Build signed APK
-flutter build apk --release --dart-define=ENV=production
-```
-
-#### Play Store Release
-```powershell
-# Build App Bundle
-flutter build appbundle --release --dart-define=ENV=production
-# Upload to Google Play Console
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-#### \"No file or variants found for asset: .env\"
-```powershell
-# Ensure .env files exist
-ls .env*
-# Run with explicit environment
-flutter run --dart-define=ENV=device
-```
-
-#### \"Failed to connect to backend\"
-```powershell
-# Check backend is running
-curl http://localhost:8000/health
-# For Android emulator, use 10.0.2.2
-# For physical device, use your PC's IP address
-```
-
-#### \"Firebase token expired\"
-```powershell
-# Restart the app to refresh token
-# Or implement token refresh in AuthService
-```
-
-#### \"Vapi call failed\"
-- Verify `VAPI_API_KEY` in backend `.env`
-- Check Vapi dashboard for account status
-- Ensure sufficient Vapi credits
-
-#### \"Gemini analysis error\"
-- Verify `GOOGLE_AI_API_KEY` in backend `.env`
-- Check Google AI Studio for quota limits
-- Validate API key permissions
-
-### Network Configuration
-
-#### Android Emulator
-```env
-BASE_URL=http://10.0.2.2:8000  # Maps to localhost:8000
-```
-
-#### Physical Device (same network)
-```env
-BASE_URL=http://192.168.1.100:8000  # Replace with your PC's IP
-```
-
-#### ADB Reverse (USB debugging)
-```powershell
-adb reverse tcp:8000 tcp:8000
-# Then use BASE_URL=http://127.0.0.1:8000
-```
-
-## 📈 Roadmap
-
-### Phase 2 (Current Development)
-- [ ] Enhanced AI analysis with behavioral insights
-- [ ] Multi-language support for interviews
-- [ ] Calendar integration for scheduling
-- [ ] Team collaboration features
-
-### Phase 3 (Future)
-- [ ] Video interview support
-- [ ] Advanced analytics dashboard
-- [ ] Integration with HR systems
-- [ ] Mobile interviewer tools
-
-### Phase 4 (Enterprise)
-- [ ] White-label solutions
-- [ ] Advanced security features
-- [ ] Custom AI model training
-- [ ] Enterprise SSO integration
-
-## 🤝 Contributing
+### Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-### Development Guidelines
-- Follow Flutter/Dart style guidelines
-- Maintain Python PEP 8 standards
-- Update documentation for new features
-- Add tests for critical functionality
-- Ensure environment variable configuration
+## Configuration
 
-## 📄 License
+The CLI stores configuration in `~/.vapi-cli.yaml`. You can also use environment variables:
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- `VAPI_API_KEY` - Your Vapi API key
+- `VAPI_BASE_URL` - API base URL (for development)
 
-## 🔗 Links & Resources
+## Supported Frameworks
 
-- **Flutter Documentation**: [flutter.dev](https://flutter.dev/docs)
-- **FastAPI Documentation**: [fastapi.tiangolo.com](https://fastapi.tiangolo.com)
-- **Firebase Console**: [console.firebase.google.com](https://console.firebase.google.com)
-- **Google AI Studio**: [makersuite.google.com](https://makersuite.google.com)
-- **Vapi Documentation**: [docs.vapi.ai](https://docs.vapi.ai)
+### Frontend
 
-## 📞 Support
+- React (Create React App, Vite)
+- Vue.js
+- Angular
+- Svelte
+- Next.js
+- Nuxt.js
+- Remix
+- Vanilla JavaScript
 
-For technical support or questions:
-- Create an issue in the GitHub repository
-- Check the troubleshooting section above
-- Review the detailed setup guide in `SETUP_GUIDE.md`
+### Mobile
+
+- React Native
+- Flutter
+
+### Backend
+
+- Node.js/TypeScript
+- Python
+- Go
+- Ruby
+- Java
+- C#/.NET
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Support
+
+- 📚 [Documentation](https://docs.vapi.ai)
+- 💬 [Discord Community](https://discord.gg/vapi)
+- 🐛 [Issue Tracker](https://github.com/VapiAI/cli/issues)
 
 ---
 
-<div align=\"center\">
+Built with ❤️ by the Vapi team
 
-**EchoHire** - Revolutionizing interviews with AI  
-*Built with ❤️ using Flutter, FastAPI, and cutting-edge AI*
+## Version Management
 
-**Last Updated**: September 24, 2025 | **Version**: 1.2.0 | **Status**: Production Ready
+The Vapi CLI uses a simple and discoverable version management system:
 
-</div>
+### Current Version
+
+The current version is stored in the `VERSION` file at the project root. This makes it easy to find and update.
+
+### Managing Versions
+
+#### Using Make (Recommended)
+
+```bash
+# Show current version
+make version
+
+# Set a specific version
+make version-set VERSION=1.2.3
+
+# Bump versions automatically
+make version-bump-patch    # 1.2.3 -> 1.2.4
+make version-bump-minor    # 1.2.3 -> 1.3.0
+make version-bump-major    # 1.2.3 -> 2.0.0
+```
+
+#### Using the Script Directly
+
+```bash
+# Show current version
+./scripts/version.sh get
+
+# Set a specific version
+./scripts/version.sh set 1.2.3
+
+# Bump versions
+./scripts/version.sh bump patch
+./scripts/version.sh bump minor
+./scripts/version.sh bump major
+```
+
+### How It Works
+
+1. **Development**: The CLI reads the version from the `VERSION` file
+2. **Release Builds**: GoReleaser overrides the version using git tags and ldflags
+3. **Priority**: Build-time version (from releases) takes priority over the VERSION file
+
+This approach provides:
+
+- ✅ Easy version discovery (just check the `VERSION` file)
+- ✅ Automated version bumping with semantic versioning
+- ✅ Consistent versioning across development and releases
+- ✅ No need to manually edit code files

@@ -61,3 +61,8 @@ backend/.venv/
 venv/
 __pycache__/
 *.pyc
+
+# Vapi CLI installation files
+vapi.exe
+vapi-cli.tar.gz
+man/

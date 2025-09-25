@@ -254,9 +254,36 @@ class VapiInterviewService:
         else:
             self.is_configured = True
     
+    def validate_configuration(self) -> Dict[str, Any]:
+        """Validate Vapi configuration and return detailed status"""
+        validation_result = {
+            "is_configured": self.is_configured,
+            "api_key_present": bool(self.vapi_api_key),
+            "api_key_length": len(self.vapi_api_key) if self.vapi_api_key else 0,
+            "base_url": self.base_url,
+            "assistant_id_present": bool(self.vapi_assistant_id),
+            "assistant_id": self.vapi_assistant_id,
+            "issues": []
+        }
+        
+        if not self.vapi_api_key:
+            validation_result["issues"].append("VAPI_API_KEY environment variable not set")
+        elif len(self.vapi_api_key) < 20:  # Vapi API keys are typically longer
+            validation_result["issues"].append("VAPI_API_KEY appears to be too short (possible invalid key)")
+        
+        if not self.vapi_assistant_id:
+            validation_result["issues"].append("VAPI_ASSISTANT_ID not configured (will use inline assistant config)")
+        
+        print(f"[VAPI_CONFIG] Configuration validation: {validation_result}")
+        return validation_result
+    
     async def start_interview_call(self, interview_data: Dict[str, Any], phone_number: Optional[str] = None) -> Dict[str, str]:
         """Start a Vapi voice interview session"""
         try:
+            # Validate configuration before proceeding
+            config_status = self.validate_configuration()
+            if not config_status["is_configured"]:
+                print(f"[VAPI_START] Configuration issues detected: {config_status['issues']}")
             async with httpx.AsyncClient() as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
@@ -310,22 +337,31 @@ class VapiInterviewService:
                 # if self.backend_public_url:
                 #     webhook_url = f"{self.backend_public_url.rstrip('/')}/webhooks/vapi"
                 #     call_config["serverUrl"] = webhook_url  # Use serverUrl instead of webhook
-                print(f"Starting Vapi call with config: {json.dumps(call_config, indent=2)}")
+                print(f"[VAPI_START] Starting Vapi call with config: {json.dumps(call_config, indent=2)}")
+                print(f"[VAPI_START] Using {'phone' if phone_number else 'web'} call mode")
+                print(f"[VAPI_START] API Key: ***{self.vapi_api_key[-8:] if len(self.vapi_api_key) > 8 else '***'}")
 
                 # Phone or web call selection
                 if phone_number:
                     call_config["phoneNumberId"] = phone_number
+                    endpoint = f"{self.base_url}/call/phone"
+                    print(f"[VAPI_START] Phone call endpoint: {endpoint}")
                     response = await client.post(
-                        f"{self.base_url}/call/phone",
+                        endpoint,
                         headers=headers,
                         json=call_config
                     )
                 else:
+                    endpoint = f"{self.base_url}/call/web"
+                    print(f"[VAPI_START] Web call endpoint: {endpoint}")
                     response = await client.post(
-                        f"{self.base_url}/call/web",
+                        endpoint,
                         headers=headers,
                         json=call_config
                     )
+                
+                print(f"[VAPI_START] Response status: {response.status_code}")
+                print(f"[VAPI_START] Response headers: {dict(response.headers)}")
                 
                 if response.status_code in (200, 201):
                     call_data = response.json()
@@ -336,29 +372,76 @@ class VapiInterviewService:
                         "webCallUrl": call_data.get("webCallUrl") if not phone_number else None
                     }
                 else:
-                    # Surface body for easier debugging (401s etc.)
+                    # Get detailed error information
                     try:
-                        body_text = response.text
-                    except Exception:
-                        body_text = "<no body>"
-                    raise Exception(f"Failed to start Vapi call: {response.status_code} - {body_text}")
+                        error_body = response.text
+                        print(f"[VAPI_START] Error response body: {error_body}")
+                        if response.headers.get('content-type', '').startswith('application/json'):
+                            error_json = response.json()
+                            print(f"[VAPI_START] Error JSON: {error_json}")
+                    except Exception as parse_error:
+                        print(f"[VAPI_START] Could not parse error response: {parse_error}")
+                        error_body = "<unparseable response>"
+                    
+                    error_msg = f"HTTP {response.status_code}"
+                    if response.status_code == 400:
+                        error_msg += " - Bad request. Check call configuration parameters."
+                    elif response.status_code == 401:
+                        error_msg += " - Authentication failed. Check API key validity and permissions."
+                    elif response.status_code == 403:
+                        error_msg += " - Access forbidden. Check API key permissions for creating calls."
+                    elif response.status_code == 422:
+                        error_msg += " - Validation error. Check assistant ID and call parameters."
+                    elif response.status_code >= 500:
+                        error_msg += " - Vapi server error. The service may be temporarily unavailable."
+                    
+                    error_msg += f" Response: {error_body}"
+                    print(f"[VAPI_START] Detailed error: {error_msg}")
+                    raise Exception(f"Failed to start Vapi call: {error_msg}")
             
+        except httpx.TimeoutException as e:
+            print(f"[VAPI_START] Timeout error: Request to Vapi API timed out")
+            print(f"[VAPI_START] Timeout details: {e}")
+            # Return error status for timeout
+            call_id = f"vapi_call_{interview_data.get('id', 'unknown')}"
+            return {
+                "callId": call_id,
+                "status": "timeout_error",
+                "message": "Vapi API request timed out",
+                "webCallUrl": None
+            }
+        except httpx.RequestError as e:
+            print(f"[VAPI_START] Network error: Failed to connect to Vapi API")
+            print(f"[VAPI_START] Network error details: {e}")
+            # Return error status for network errors
+            call_id = f"vapi_call_{interview_data.get('id', 'unknown')}"
+            return {
+                "callId": call_id,
+                "status": "network_error",
+                "message": "Failed to connect to Vapi API",
+                "webCallUrl": None
+            }
         except Exception as e:
-            print(f"Vapi call start error: {e}")
+            print(f"[VAPI_START] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[VAPI_START] Full traceback: {traceback.format_exc()}")
             # Return mock data for development
             call_id = f"vapi_call_{interview_data.get('id', 'unknown')}"
             return {
                 "callId": call_id,
-                "status": "initiated",
+                "status": "error",
                 "message": "Mock interview call started (Vapi integration pending)",
                 "webCallUrl": "https://mock-vapi-call.com/session/123"
             }
     
     async def get_call_status(self, call_id: str) -> Dict[str, Any]:
-        """Get the status of a Vapi call"""
+        """Get the status of a Vapi call with detailed error logging"""
         try:
-            if not self.is_configured:
-                print("Vapi not configured, returning mock status")
+            # Validate configuration before proceeding
+            config_status = self.validate_configuration()
+            if not config_status["is_configured"]:
+                print("[VAPI_STATUS] Vapi not configured, returning mock status")
+                print(f"[VAPI_STATUS] Config check - API Key: {'***' if self.vapi_api_key else 'MISSING'}, Base URL: {self.base_url}")
                 return {
                     "callId": call_id,
                     "status": "in_progress",
@@ -367,21 +450,29 @@ class VapiInterviewService:
                     "recordingUrl": None
                 }
                 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
                     "Content-Type": "application/json"
                 }
-                print(f"Checking Vapi call status for: {call_id}")
+                print(f"[VAPI_STATUS] Checking call status for: {call_id}")
+                print(f"[VAPI_STATUS] Request URL: {self.base_url}/call/{call_id}")
+                print(f"[VAPI_STATUS] Headers: Authorization=Bearer ***{self.vapi_api_key[-8:] if len(self.vapi_api_key) > 8 else '***'}, Content-Type={headers['Content-Type']}")
                 
                 response = await client.get(
                     f"{self.base_url}/call/{call_id}",
                     headers=headers
                 )
                 
+                print(f"[VAPI_STATUS] Response status: {response.status_code}")
+                print(f"[VAPI_STATUS] Response headers: {dict(response.headers)}")
+                
                 if response.status_code == 200:
                     call_data = response.json()
-                    return {
+                    print(f"[VAPI_STATUS] Call data keys: {list(call_data.keys())}")
+                    print(f"[VAPI_STATUS] Call status: {call_data.get('status')}, endedReason: {call_data.get('endedReason')}")
+                    
+                    result = {
                         "callId": call_id,
                         "status": (call_data.get("status") or call_data.get("state") or "unknown"),
                         "duration": call_data.get("duration") or call_data.get("callDuration") or 0,
@@ -389,15 +480,65 @@ class VapiInterviewService:
                         "recordingUrl": call_data.get("recordingUrl") or call_data.get("recording_url"),
                         "endedReason": call_data.get("endedReason") or call_data.get("end_reason")
                     }
+                    print(f"[VAPI_STATUS] Returning result: {result}")
+                    return result
                 else:
-                    raise Exception(f"Failed to get call status: {response.status_code}")
+                    # Get detailed error information
+                    try:
+                        error_body = response.text
+                        print(f"[VAPI_STATUS] Error response body: {error_body}")
+                        if response.headers.get('content-type', '').startswith('application/json'):
+                            error_json = response.json()
+                            print(f"[VAPI_STATUS] Error JSON: {error_json}")
+                    except Exception as parse_error:
+                        print(f"[VAPI_STATUS] Could not parse error response: {parse_error}")
+                        error_body = "<unparseable response>"
+                    
+                    error_msg = f"HTTP {response.status_code}"
+                    if response.status_code == 401:
+                        error_msg += " - Authentication failed. Check API key validity and permissions."
+                    elif response.status_code == 404:
+                        error_msg += f" - Call {call_id} not found. Verify the call ID is correct."
+                    elif response.status_code == 403:
+                        error_msg += " - Access forbidden. Check API key permissions for this resource."
+                    elif response.status_code >= 500:
+                        error_msg += " - Vapi server error. The service may be temporarily unavailable."
+                    
+                    error_msg += f" Response: {error_body}"
+                    print(f"[VAPI_STATUS] Detailed error: {error_msg}")
+                    raise Exception(f"Failed to get call status: {error_msg}")
             
+        except httpx.TimeoutException as e:
+            print(f"[VAPI_STATUS] Timeout error: Request to Vapi API timed out after 30 seconds")
+            print(f"[VAPI_STATUS] Timeout details: {e}")
+            # Return mock status for timeout
+            return {
+                "callId": call_id,
+                "status": "timeout_error",
+                "duration": 300,
+                "transcriptUrl": None,
+                "recordingUrl": None
+            }
+        except httpx.RequestError as e:
+            print(f"[VAPI_STATUS] Network error: Failed to connect to Vapi API")
+            print(f"[VAPI_STATUS] Network error details: {e}")
+            print(f"[VAPI_STATUS] Check internet connection and Vapi API availability")
+            # Return mock status for network errors
+            return {
+                "callId": call_id,
+                "status": "network_error",
+                "duration": 300,
+                "transcriptUrl": None,
+                "recordingUrl": None
+            }
         except Exception as e:
-            print(f"Vapi status check error: {e}")
+            print(f"[VAPI_STATUS] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[VAPI_STATUS] Full traceback: {traceback.format_exc()}")
             # Return mock status for development
             return {
                 "callId": call_id,
-                "status": "in_progress",
+                "status": "error",
                 "duration": 300,  # 5 minutes
                 "transcriptUrl": None,
                 "recordingUrl": None
