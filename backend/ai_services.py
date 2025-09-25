@@ -1,7 +1,16 @@
 # AI Service utilities for EchoHire backend
 import os
 from typing import Dict, Any, List, Optional
-import google.generativeai as genai
+
+# Make google.generativeai optional so the backend doesn't crash if the package isn't installed
+try:
+    import google.generativeai as genai  # type: ignore
+    GENAI_AVAILABLE = True
+except Exception as e:  # ModuleNotFoundError or other import-time errors
+    genai = None  # type: ignore
+    GENAI_AVAILABLE = False
+    print(f"WARNING: google.generativeai not available ({type(e).__name__}: {e}). AI analysis will use fallback.")
+
 import httpx
 import asyncio
 import json
@@ -10,16 +19,26 @@ class GeminiAnalysisService:
     """Service for AI-powered interview analysis using Google Gemini"""
     
     def __init__(self):
-        # Check if API key is configured
+        # Default state
+        self.model = None
+        self.safety_settings = []
+
+        # Check if API key and package are configured
         api_key = os.getenv("GOOGLE_AI_API_KEY", "your-gemini-api-key-here")
+
+        if not GENAI_AVAILABLE:
+            print("WARNING: google.generativeai package missing. AI analysis will use fallback.")
+            self.is_configured = False
+            return
+
         if api_key == "your-gemini-api-key-here" or not api_key:
             print("WARNING: GOOGLE_AI_API_KEY not configured properly. AI analysis will use mock data.")
             self.is_configured = False
-        else:
-            self.is_configured = True
-            genai.configure(api_key=api_key)
-            
+            return
+
+        # Configure SDK and initialize model
         try:
+            genai.configure(api_key=api_key)
             self.model = genai.GenerativeModel('gemini-pro')
             self.safety_settings = [
                 {
@@ -27,10 +46,11 @@ class GeminiAnalysisService:
                     "threshold": "BLOCK_MEDIUM_AND_ABOVE"
                 },
                 {
-                    "category": "HARM_CATEGORY_HATE_SPEECH", 
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
                     "threshold": "BLOCK_MEDIUM_AND_ABOVE"
                 }
             ]
+            self.is_configured = True
         except Exception as e:
             print(f"Error initializing Gemini model: {e}")
             self.is_configured = False
@@ -41,6 +61,14 @@ class GeminiAnalysisService:
             role = interview_data.get('jobTitle', 'Software Engineer')
             interview_type = interview_data.get('type', 'technical')
             experience_level = interview_data.get('level', 'mid')
+
+            # Fallback early if Gemini isn't configured/available
+            if not self.is_configured or not self.model:
+                return self._fallback_analysis(
+                    "AI analysis unavailable - using heuristic fallback.",
+                    role,
+                    interview_type
+                )
             
             analysis_prompt = f"""
             You are an expert technical interviewer analyzing a {interview_type} interview for a {role} position at {experience_level} level.

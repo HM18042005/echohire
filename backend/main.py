@@ -110,6 +110,54 @@ async def debug_env():
         )
     }
 
+# Consolidated AI/Vapi diagnostics (safe to expose in non-prod only)
+@app.get("/debug/ai")
+async def debug_ai():
+    try:
+        from ai_services import gemini_service, vapi_service  # local import to avoid circulars in some setups
+    except Exception as e:
+        return {
+            "error": f"failed to import ai_services: {type(e).__name__}: {e}"
+        }
+
+    def last8(s: str | None) -> str | None:
+        return s[-8:] if s else None
+
+    # Gemini status
+    gemini_key = os.getenv("GOOGLE_AI_API_KEY")
+    gemini_status = {
+        "env_key_present": bool(gemini_key),
+        "env_key_len": len(gemini_key) if gemini_key else 0,
+        "env_key_ends_with": last8(gemini_key),
+        "service_is_configured": bool(getattr(gemini_service, "is_configured", False)),
+        "model_ready": bool(getattr(gemini_service, "model", None) is not None),
+    }
+
+    # Vapi status
+    vapi_api_key = os.getenv("VAPI_API_KEY")
+    vapi_public_key = os.getenv("VAPI_PUBLIC_KEY")
+    vapi_status = {
+        "is_configured": bool(getattr(vapi_service, "is_configured", False)),
+        "base_url": getattr(vapi_service, "base_url", None),
+        "assistant_id": getattr(vapi_service, "vapi_assistant_id", None),
+        "api_key_present": bool(vapi_api_key),
+        "api_key_len": len(vapi_api_key) if vapi_api_key else 0,
+        "api_key_ends_with": last8(vapi_api_key),
+        "public_key_present": bool(vapi_public_key),
+        "public_key_len": len(vapi_public_key) if vapi_public_key else 0,
+        "public_key_ends_with": last8(vapi_public_key),
+        "backend_public_url": os.getenv("BACKEND_PUBLIC_URL"),
+    }
+
+    return {
+        "gemini": gemini_status,
+        "vapi": vapi_status,
+        "notes": [
+            "Only use this endpoint in development; it reveals configuration presence and lengths but not full secrets.",
+            "For web calls, expect start to return ready_for_client_init; client must post real callId back to backend.",
+        ],
+    }
+
 # Environment toggles
 AUTO_GENERATE_AI_FEEDBACK = os.getenv("AUTO_GENERATE_AI_FEEDBACK", "0") == "1"
 VAPI_WEBHOOK_SECRET = os.getenv("VAPI_WEBHOOK_SECRET", "")
