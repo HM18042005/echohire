@@ -239,7 +239,26 @@ class VapiInterviewService:
     """Service for managing Vapi voice AI interviews"""
     
     def __init__(self):
-        self.vapi_api_key = os.getenv("VAPI_API_KEY", "your-vapi-key-here")
+        # Debug environment variable loading
+        print(f"[VAPI_INIT] Loading environment variables...")
+        
+        # Get API key with detailed debugging
+        self.vapi_api_key = os.getenv("VAPI_API_KEY")
+        vapi_public_key = os.getenv("VAPI_PUBLIC_KEY")
+        
+        print(f"[VAPI_INIT] VAPI_API_KEY found: {bool(self.vapi_api_key)}")
+        print(f"[VAPI_INIT] VAPI_PUBLIC_KEY found: {bool(vapi_public_key)}")
+        
+        if self.vapi_api_key:
+            print(f"[VAPI_INIT] VAPI_API_KEY ends with: ***{self.vapi_api_key[-8:]}")
+        if vapi_public_key:
+            print(f"[VAPI_INIT] VAPI_PUBLIC_KEY ends with: ***{vapi_public_key[-8:]}")
+        
+        # Ensure we're using the private API key for server-side operations
+        if not self.vapi_api_key:
+            print("[VAPI_INIT] WARNING: VAPI_API_KEY not found, using fallback")
+            self.vapi_api_key = "your-vapi-key-here"
+        
         self.base_url = "https://api.vapi.ai"
         # Optional: assistant scoping (many Vapi tokens are scoped to specific assistants)
         self.vapi_assistant_id = os.getenv("VAPI_ASSISTANT_ID")
@@ -247,11 +266,15 @@ class VapiInterviewService:
         self.backend_public_url = os.getenv("BACKEND_PUBLIC_URL")  # e.g., https://api.example.com
         self.webhook_secret = os.getenv("VAPI_WEBHOOK_SECRET")
         
+        print(f"[VAPI_INIT] Assistant ID: {self.vapi_assistant_id}")
+        print(f"[VAPI_INIT] Backend URL: {self.backend_public_url}")
+        
         # Check if API key is configured
         if self.vapi_api_key == "your-vapi-key-here" or not self.vapi_api_key:
-            print("WARNING: VAPI_API_KEY not configured properly. Vapi calls will use mock data.")
+            print("[VAPI_INIT] WARNING: VAPI_API_KEY not configured properly. Vapi calls will use mock data.")
             self.is_configured = False
         else:
+            print(f"[VAPI_INIT] API key configured successfully (length: {len(self.vapi_api_key)})")
             self.is_configured = True
     
     def validate_configuration(self) -> Dict[str, Any]:

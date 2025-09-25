@@ -84,6 +84,32 @@ genai.configure(api_key=os.getenv("GOOGLE_AI_API_KEY", "your-gemini-api-key-here
 
 app = FastAPI(title="EchoHire API", version="1.0.0")
 
+# Temporary debug endpoint for environment variables (remove in production)
+@app.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment variable configuration"""
+    import os
+    
+    vapi_api_key = os.getenv("VAPI_API_KEY")
+    vapi_public_key = os.getenv("VAPI_PUBLIC_KEY")
+    
+    return {
+        "vapi_api_key_present": bool(vapi_api_key),
+        "vapi_api_key_length": len(vapi_api_key) if vapi_api_key else 0,
+        "vapi_api_key_ends_with": vapi_api_key[-8:] if vapi_api_key else None,
+        "vapi_public_key_present": bool(vapi_public_key),
+        "vapi_public_key_length": len(vapi_public_key) if vapi_public_key else 0,
+        "vapi_public_key_ends_with": vapi_public_key[-8:] if vapi_public_key else None,
+        "vapi_assistant_id": os.getenv("VAPI_ASSISTANT_ID"),
+        "backend_public_url": os.getenv("BACKEND_PUBLIC_URL"),
+        "expected_api_key_ending": "9fc458b3",
+        "expected_public_key_ending": "c8becf15",
+        "keys_correctly_configured": (
+            vapi_api_key and vapi_api_key.endswith("9fc458b3") and
+            vapi_public_key and vapi_public_key.endswith("c8becf15")
+        )
+    }
+
 # Environment toggles
 AUTO_GENERATE_AI_FEEDBACK = os.getenv("AUTO_GENERATE_AI_FEEDBACK", "0") == "1"
 VAPI_WEBHOOK_SECRET = os.getenv("VAPI_WEBHOOK_SECRET", "")
