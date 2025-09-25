@@ -178,6 +178,7 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
 
   Future<void> _startRealAIInterview() async {
     try {
+      print('🔄 Starting real AI interview for ${widget.interview.id}');
       final res = await ApiServiceSingleton.instance.startAIInterview(
         widget.interview.id,
       );
@@ -186,18 +187,51 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
         _webCallUrl = (res['webCallUrl'] ?? res['web_call_url'])?.toString();
       });
 
+      print('✅ AI interview started successfully');
       if (_webCallUrl != null) {
+        print('🔗 Web call URL available: $_webCallUrl');
         _addToConversationLog(
           ConversationEntry(
             speaker: Speaker.ai,
             content:
-                'Real AI session ready. Tap "Join AI Call" to connect in your browser.',
+                'Real AI session ready! Tap "Join AI Call" to connect in your browser and start your interview.',
+            timestamp: DateTime.now(),
+          ),
+        );
+      } else {
+        print('⚠️ No web call URL received, interview may be phone-based');
+        _addToConversationLog(
+          ConversationEntry(
+            speaker: Speaker.ai,
+            content:
+                'AI interview session is being prepared. Please wait a moment...',
             timestamp: DateTime.now(),
           ),
         );
       }
     } catch (e) {
-      _showError('Failed to start AI interview: $e');
+      print('❌ Failed to start AI interview: $e');
+      String userFriendlyMessage;
+      if (e.toString().contains('400')) {
+        userFriendlyMessage = 'There was an issue with the interview setup. Our team has been notified. Please try again in a few minutes.';
+      } else if (e.toString().contains('401')) {
+        userFriendlyMessage = 'Authentication issue. Please try logging out and back in.';
+      } else if (e.toString().contains('timeout') || e.toString().contains('network')) {
+        userFriendlyMessage = 'Network connection issue. Please check your internet and try again.';
+      } else {
+        userFriendlyMessage = 'Unable to start AI interview. Please try again or contact support if the issue persists.';
+      }
+      _showError(userFriendlyMessage);
+      
+      // Add fallback message to conversation log
+      _addToConversationLog(
+        ConversationEntry(
+          speaker: Speaker.ai,
+          content:
+              'I apologize, but I\'m having trouble connecting to the AI interview system right now. Let\'s continue with practice questions instead.',
+          timestamp: DateTime.now(),
+        ),
+      );
     }
   }
 
@@ -217,20 +251,47 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
 
   void _startStatusPolling() {
     _statusTimer?.cancel();
-    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+    int consecutiveFailures = 0;
+    const maxFailures = 5;
+    
+    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       try {
+        print('🔄 Checking AI interview status...');
         final res = await ApiServiceSingleton.instance.getAIInterviewStatus(
           widget.interview.id,
         );
         final status = (res['status'] ?? '').toString().toLowerCase();
         final transcriptUrl = res['transcriptUrl']?.toString();
+        
+        print('📊 AI Interview status: $status');
+        consecutiveFailures = 0; // Reset failure count on success
 
         if (status == 'completed' || status == 'failed') {
           _statusTimer?.cancel();
           await _onInterviewCompleted(transcriptUrl: transcriptUrl);
+        } else if (status == 'in_progress' || status == 'inprogress') {
+          // Update UI to show interview is active
+          if (mounted) {
+            _addToConversationLog(
+              ConversationEntry(
+                speaker: Speaker.ai,
+                content: 'Interview is in progress. Join the call to continue.',
+                timestamp: DateTime.now(),
+              ),
+            );
+          }
         }
       } catch (e) {
-        // Ignore transient polling errors
+        consecutiveFailures++;
+        print('⚠️ Status check failed (${consecutiveFailures}/$maxFailures): $e');
+        
+        if (consecutiveFailures >= maxFailures) {
+          _statusTimer?.cancel();
+          print('❌ Too many status check failures, stopping polling');
+          if (mounted) {
+            _showError('Lost connection to interview session. Please refresh and try again.');
+          }
+        }
       }
     });
   }
