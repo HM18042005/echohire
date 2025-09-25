@@ -494,10 +494,31 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                 } else if (Mod && typeof Mod.WebVapi === 'function') {
                                     VapiCtor = Mod.WebVapi; // try another plausible name
                                 }
-                                if (typeof VapiCtor !== 'function') {
-                                    const shape = (()=>{ try { return JSON.stringify(Mod); } catch(_) { return String(Mod); } })();
-                                    throw new Error('Vapi constructor not found in module. typeof='+(typeof Mod)+' shape='+shape);
-                                }
+                                            if (typeof VapiCtor !== 'function') {
+                                                const shape = (()=>{ try { return JSON.stringify(Mod); } catch(_) { return String(Mod); } })();
+                                                updateStatus('ESM lacked constructor. typeof(Mod)='+ (typeof Mod) + ' shape=' + shape + ' → Trying UMD dist fallback…');
+                                                // UMD fallback: load dist/vapi.js and use window.Vapi
+                                                const loadScript = (src) => new Promise((resolve, reject) => { const s=document.createElement('script'); s.src=src; s.async=true; s.crossOrigin='anonymous'; s.onload=()=>resolve(); s.onerror=(e)=>reject(e); document.head.appendChild(s); });
+                                                const umdCandidates = [
+                                                    'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
+                                                    'https://fastly.jsdelivr.net/npm/@vapi-ai/web@latest/dist/vapi.js',
+                                                    'https://unpkg.com/@vapi-ai/web@latest/dist/vapi.js',
+                                                ];
+                                                if (!window.__vapiUmdLoading) {
+                                                    window.__vapiUmdLoading = true;
+                                                    for (let i=0; i<umdCandidates.length && !window.Vapi; i++) {
+                                                        const url = umdCandidates[i];
+                                                        try { updateStatus('Loading UMD from: ' + url); await loadScript(url); } catch(e) { /* try next */ }
+                                                    }
+                                                    window.__vapiUmdLoading = false;
+                                                }
+                                                if (window.Vapi) {
+                                                    VapiCtor = (typeof window.Vapi === 'function') ? window.Vapi : (window.Vapi.default || window.Vapi.Vapi);
+                                                }
+                                                if (typeof VapiCtor !== 'function') {
+                                                    throw new Error('Vapi constructor not found after UMD fallback');
+                                                }
+                                            }
 
                                 updateStatus('Creating Vapi client…');
                                 let client = null;
