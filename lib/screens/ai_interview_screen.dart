@@ -392,35 +392,75 @@ class _AIInterviewScreenState extends ConsumerState<AIInterviewScreen>
     if (AppConfig.enableMocks) {
       await _endInterview();
     } else {
-      // For real flow: show completion dialog and option to view results
+      // For real flow: automatically start feedback generation
       if (mounted) {
-        await showDialog(
+        // Show generating feedback dialog
+        showDialog(
           context: context,
+          barrierDismissible: false,
           builder: (ctx) => AlertDialog(
             title: const Text('Interview Completed'),
-            content: const Text(
-              'Your interview has completed. The transcript has been saved.',
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Generating AI feedback...'),
+                SizedBox(height: 8),
+                Text(
+                  'This may take a few moments.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Close'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          InterviewResultsScreen(interview: widget.interview),
-                    ),
-                  );
-                },
-                child: const Text('View Results'),
-              ),
-            ],
           ),
         );
+
+        // Start feedback generation in background
+        bool feedbackReady = false;
+        try {
+          await ApiServiceSingleton.instance.getAIFeedback(widget.interview.id);
+          feedbackReady = true;
+        } catch (e) {
+          print('Error generating feedback: $e');
+          // Continue anyway - feedback can still be generated later
+        }
+
+        // Close loading dialog
+        if (mounted) Navigator.of(context).pop();
+
+        // Show completion dialog with results option
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Interview Completed'),
+              content: Text(
+                feedbackReady
+                    ? 'Your interview has completed and AI feedback is ready!'
+                    : 'Your interview has completed. The transcript has been saved.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Close'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            InterviewResultsScreen(interview: widget.interview),
+                      ),
+                    );
+                  },
+                  child: Text(feedbackReady ? 'View Feedback' : 'View Results'),
+                ),
+              ],
+            ),
+          );
+        }
       }
     }
   }

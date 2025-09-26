@@ -364,7 +364,15 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
       )
       ..addJavaScriptChannel(
         'callEnded',
-        onMessageReceived: (JavaScriptMessage _) {
+        onMessageReceived: (JavaScriptMessage _) async {
+          try {
+            // Mark interview as completed in backend
+            await ApiServiceSingleton.instance.completeAIInterview(
+              widget.interviewId,
+            );
+          } catch (e) {
+            print('Error completing interview: $e');
+          }
           widget.onCallEnded?.call();
           if (mounted) Navigator.of(context).pop();
         },

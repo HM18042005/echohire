@@ -22,7 +22,7 @@ load_dotenv()
 # AI Integration imports (optional)
 # Do not hard-require google.generativeai here; ai_services handles fallbacks.
 import httpx
-from ai_services import gemini_service, vapi_service
+from ai_services import gemini_service, vapi_service, UNIVERSAL_WORKFLOW_ID
 from vapi_workflows import InterviewSetupAssistant
 
 # Helper to stop Vapi call
@@ -362,6 +362,14 @@ class AIFeedbackResponse(BaseModel):
     transcriptAnalysis: str
     emotionalAnalysis: Dict[str, float]
     recommendation: str
+    # Enhanced fields from improved analysis
+    technicalAssessment: Optional[Dict[str, Any]] = None
+    communicationAssessment: Optional[Dict[str, Any]] = None
+    problemSolvingAssessment: Optional[Dict[str, Any]] = None
+    roleSpecificAssessment: Optional[Dict[str, Any]] = None
+    interviewQuality: Optional[Dict[str, Any]] = None
+    recommendedAreas: Optional[List[str]] = None
+    nextSteps: Optional[str] = None
 
 # Firebase token verification dependency
 async def verify_firebase_token(authorization: str = Header(...)):
@@ -872,10 +880,23 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                         endBtn.disabled = true; 
                         updateStatus('Ending…'); 
                         client.stop().then(function() {
-                            updateStatus('Ended.'); 
-                            if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('ended');
+                            updateStatus('Call stopped, completing interview...'); 
+                            // Wait for Vapi's system to mark the call as ended
+                            setTimeout(function() {
+                                updateStatus('Interview completed.'); 
+                                if (typeof callEnded !== 'undefined' && callEnded.postMessage) {
+                                    callEnded.postMessage('ended');
+                                }
+                            }, 3000); // Wait 3 seconds for Vapi to update call status
                         }).catch(function(e) { 
                             logError('Failed to end', e); 
+                            updateStatus('Error stopping call, completing anyway...'); 
+                            // Still complete the interview even if there was an error
+                            setTimeout(function() {
+                                if (typeof callEnded !== 'undefined' && callEnded.postMessage) {
+                                    callEnded.postMessage('ended');
+                                }
+                            }, 1000);
                             endBtn.disabled = false; 
                         });
                     };
@@ -1435,6 +1456,141 @@ async def create_interview(
         print(f"Interview creation error: {e}")
         raise HTTPException(status_code=500, detail="Failed to create interview")
 
+# AI Guided Interview Creation with Vapi Workflow
+class AIGuidedInterviewRequest(BaseModel):
+    # workflowId is now universal and automatically used - no longer required in request
+    candidateName: Optional[str] = Field(None, description="Optional candidate name")
+    jobTitle: Optional[str] = Field(None, description="Optional job title if pre-known")
+    companyName: Optional[str] = Field(None, description="Optional company name")
+    interviewType: Optional[str] = Field("technical", description="Interview type")
+    experienceLevel: Optional[str] = Field("mid", description="Experience level")
+    phone: Optional[str] = Field(None, description="Phone number for phone-based interviews")
+
+class AIGuidedInterviewResponse(BaseModel):
+    sessionId: str
+    callId: str
+    status: str
+    assistantId: Optional[str] = None
+    publicKey: Optional[str] = None
+    workflowId: str
+    interviewId: Optional[str] = None
+    message: str
+    
+@app.post("/interviews/ai-guided", response_model=AIGuidedInterviewResponse)
+async def create_ai_guided_interview(
+    request: AIGuidedInterviewRequest,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """
+    Create an AI guided interview using a Vapi workflow ID.
+    This starts a conversational AI that will gather interview preferences,
+    create questions, and conduct the interview.
+    """
+    try:
+        uid = user_data["uid"]
+        session_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat() + "Z"
+        
+        print(f"🤖 Starting AI guided interview with universal workflow ID: {UNIVERSAL_WORKFLOW_ID}")
+        
+        # Prepare interview metadata
+        interview_metadata = {
+            "userId": uid,
+            "candidateName": request.candidateName or "Candidate",
+            "jobTitle": request.jobTitle,
+            "companyName": request.companyName,
+            "interviewType": request.interviewType,
+            "experienceLevel": request.experienceLevel,
+            "sessionId": session_id,
+            "workflowId": UNIVERSAL_WORKFLOW_ID,
+            "createdAt": now
+        }
+        
+        # Start Vapi call with workflow
+        try:
+            vapi_call_result = await vapi_service.start_workflow_call(
+                workflow_id=UNIVERSAL_WORKFLOW_ID,
+                metadata=interview_metadata,
+                phone_number=request.phone
+            )
+            
+            call_id = vapi_call_result.get("callId")
+            call_status = vapi_call_result.get("status", "unknown")
+            
+            print(f"✅ Vapi workflow call started: {call_id} (status: {call_status})")
+            
+            # Create a preliminary interview record
+            interview_id = str(uuid.uuid4())
+            preliminary_interview = {
+                "id": interview_id,
+                "jobTitle": request.jobTitle or "TBD - AI Guided",
+                "companyName": request.companyName or "TBD - AI Guided", 
+                "interviewDate": now,
+                "status": "ai_guided_setup",
+                "overallScore": None,
+                "userId": uid,
+                "vapiCallId": call_id,
+                "workflowId": UNIVERSAL_WORKFLOW_ID,
+                "aiGuided": True,
+                "metadata": interview_metadata,
+                "createdAt": now,
+                "updatedAt": now
+            }
+            
+            # Save preliminary interview to Firebase
+            if db is not None:
+                interview_ref = db.collection("interviews").document(interview_id)
+                interview_ref.set(preliminary_interview)
+                print(f"📝 Saved preliminary AI guided interview: {interview_id}")
+            
+            # Save session mapping for workflow tracking
+            if db is not None:
+                session_ref = db.collection("ai_guided_sessions").document(session_id)
+                session_ref.set({
+                    "sessionId": session_id,
+                    "interviewId": interview_id,
+                    "userId": uid,
+                    "workflowId": UNIVERSAL_WORKFLOW_ID,
+                    "vapiCallId": call_id,
+                    "status": call_status,
+                    "metadata": interview_metadata,
+                    "createdAt": now,
+                    "updatedAt": now
+                })
+            
+            return AIGuidedInterviewResponse(
+                sessionId=session_id,
+                callId=call_id,
+                status=call_status,
+                assistantId=vapi_call_result.get("assistantId"),
+                publicKey=vapi_call_result.get("publicKey"),
+                workflowId=UNIVERSAL_WORKFLOW_ID,
+                interviewId=interview_id,
+                message=f"AI guided interview session started. Call ID: {call_id}"
+            )
+            
+        except Exception as vapi_error:
+            print(f"❌ Vapi workflow call failed: {vapi_error}")
+            # Return fallback response for mock/development mode
+            fallback_call_id = f"ai_guided_mock_{session_id[:8]}"
+            
+            return AIGuidedInterviewResponse(
+                sessionId=session_id,
+                callId=fallback_call_id,
+                status="mock_ai_guided",
+                assistantId="mock_assistant",
+                publicKey="mock_public_key",
+                workflowId=UNIVERSAL_WORKFLOW_ID,
+                interviewId=None,
+                message=f"AI guided interview in mock mode (Vapi not configured). Session: {session_id}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"AI guided interview creation error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create AI guided interview")
+
 @app.get("/interviews", response_model=List[InterviewOut])
 async def get_user_interviews(user_data: dict = Depends(verify_firebase_token)):
     """
@@ -1887,6 +2043,151 @@ async def get_ai_interview_status(
         print(f"AI status check error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get AI interview status")
 
+@app.post("/interviews/{interview_id}/complete-ai")
+async def complete_ai_interview(
+    interview_id: str,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """Manually mark an AI interview as completed when the client ends the call"""
+    try:
+        uid = user_data["uid"]
+        
+        # Get interview data
+        interview_ref = db.collection("interviews").document(interview_id)
+        interview_doc = interview_ref.get()
+        
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        
+        interview_data = interview_doc.to_dict()
+        if interview_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Update interview status to completed
+        now = datetime.utcnow().isoformat() + "Z"
+        update_payload = {
+            "status": "completed",
+            "updatedAt": now
+        }
+        
+        # If we have a vapi call ID, try to get final status/transcript
+        vapi_call_id = interview_data.get("vapiCallId")
+        transcript_text = None
+        
+        if vapi_call_id:
+            try:
+                # First try to get status with transcript URL
+                vapi_status = await vapi_service.get_call_status(vapi_call_id)
+                if vapi_status.get("duration"):
+                    update_payload["interviewDuration"] = vapi_status.get("duration")
+                if vapi_status.get("transcriptUrl"):
+                    update_payload["transcriptUrl"] = vapi_status.get("transcriptUrl")
+                if vapi_status.get("recordingUrl"):
+                    update_payload["audioRecordingUrl"] = vapi_status.get("recordingUrl")
+                
+                # Also try to get transcript directly via API
+                try:
+                    transcript_text = await vapi_service.get_call_transcript(vapi_call_id)
+                    if transcript_text and transcript_text.strip():
+                        # Store transcript directly in Firebase
+                        transcript_doc = {
+                            'interviewId': interview_id,
+                            'userId': uid,
+                            'transcript': transcript_text,
+                            'createdAt': now,
+                            'updatedAt': now,
+                        }
+                        db.collection('transcripts').document(interview_id).set(transcript_doc, merge=True)
+                        print(f"✅ Transcript saved directly to Firebase for interview {interview_id}")
+                    
+                except Exception as transcript_err:
+                    print(f"Warning: Could not fetch transcript directly: {transcript_err}")
+                    
+            except Exception as e:
+                print(f"Warning: Could not get final Vapi status during completion: {e}")
+        
+        interview_ref.update(update_payload)
+        
+        return {
+            "message": "Interview marked as completed",
+            "status": "completed",
+            "updatedAt": now,
+            "transcriptGenerated": transcript_text is not None and transcript_text.strip() != ""
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Complete AI interview error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to complete AI interview")
+
+@app.get("/interviews/{interview_id}/transcript")
+async def get_interview_transcript(
+    interview_id: str,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """Get the transcript for an interview"""
+    try:
+        uid = user_data["uid"]
+        
+        # Get interview data
+        interview_ref = db.collection("interviews").document(interview_id)
+        interview_doc = interview_ref.get()
+        
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        
+        interview_data = interview_doc.to_dict()
+        if interview_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # First try to get from stored transcripts
+        transcript_ref = db.collection("transcripts").document(interview_id)
+        transcript_doc = transcript_ref.get()
+        
+        if transcript_doc.exists:
+            transcript_data = transcript_doc.to_dict()
+            return {
+                "interviewId": interview_id,
+                "transcript": transcript_data.get("transcript", ""),
+                "createdAt": transcript_data.get("createdAt"),
+                "source": "stored"
+            }
+        
+        # If not stored, try to fetch from Vapi
+        vapi_call_id = interview_data.get("vapiCallId")
+        if vapi_call_id:
+            try:
+                transcript_text = await vapi_service.get_call_transcript(vapi_call_id)
+                if transcript_text and transcript_text.strip():
+                    # Store it for future use
+                    now = datetime.utcnow().isoformat() + "Z"
+                    transcript_doc = {
+                        'interviewId': interview_id,
+                        'userId': uid,
+                        'transcript': transcript_text,
+                        'createdAt': now,
+                        'updatedAt': now,
+                    }
+                    db.collection('transcripts').document(interview_id).set(transcript_doc)
+                    
+                    return {
+                        "interviewId": interview_id,
+                        "transcript": transcript_text,
+                        "createdAt": now,
+                        "source": "vapi_api"
+                    }
+            except Exception as e:
+                print(f"Error fetching transcript from Vapi: {e}")
+        
+        # Return not found if no transcript available
+        raise HTTPException(status_code=404, detail="Transcript not available")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Get transcript error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get transcript")
+
 @app.get("/interviews/{interview_id}/ai-feedback", response_model=AIFeedbackResponse)
 async def get_ai_feedback(
     interview_id: str,
@@ -1928,7 +2229,14 @@ async def get_ai_feedback(
                 speechAnalysis=feedback_data.get("speechAnalysis", {}),
                 transcriptAnalysis=feedback_data.get("transcriptAnalysis", ""),
                 emotionalAnalysis=feedback_data.get("emotionalAnalysis", {}),
-                recommendation=feedback_data.get("finalVerdict", "")
+                recommendation=feedback_data.get("finalVerdict", ""),
+                technicalAssessment=feedback_data.get("technicalAssessment", {}),
+                communicationAssessment=feedback_data.get("communicationAssessment", {}),
+                problemSolvingAssessment=feedback_data.get("problemSolvingAssessment", {}),
+                roleSpecificAssessment=feedback_data.get("roleSpecificAssessment", {}),
+                interviewQuality=feedback_data.get("interviewQuality", {}),
+                recommendedAreas=feedback_data.get("recommendedAreas", []),
+                nextSteps=feedback_data.get("nextSteps", "Further evaluation recommended")
             )
         else:
             # Generate new AI feedback using Gemini
@@ -1982,7 +2290,14 @@ async def get_ai_feedback(
                 speechAnalysis=ai_feedback_data.get("speechAnalysis", {}),
                 transcriptAnalysis=ai_feedback_data.get("transcriptAnalysis", ""),
                 emotionalAnalysis=ai_feedback_data.get("emotionalAnalysis", {}),
-                recommendation=ai_feedback_data.get("recommendation", "Review recommended")
+                recommendation=ai_feedback_data.get("recommendation", "Review recommended"),
+                technicalAssessment=ai_feedback_data.get("technicalAssessment", {}),
+                communicationAssessment=ai_feedback_data.get("communicationAssessment", {}),
+                problemSolvingAssessment=ai_feedback_data.get("problemSolvingAssessment", {}),
+                roleSpecificAssessment=ai_feedback_data.get("roleSpecificAssessment", {}),
+                interviewQuality=ai_feedback_data.get("interviewQuality", {}),
+                recommendedAreas=ai_feedback_data.get("recommendedAreas", []),
+                nextSteps=ai_feedback_data.get("nextSteps", "Further evaluation recommended")
             )
             
     except HTTPException:

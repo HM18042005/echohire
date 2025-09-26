@@ -2,6 +2,9 @@
 import os
 from typing import Dict, Any, List, Optional
 
+# Universal Vapi Workflow Configuration
+UNIVERSAL_WORKFLOW_ID = "7894c32f-8b29-4e71-90f3-a19047832a21"
+
 # Make google.generativeai optional so the backend doesn't crash if the package isn't installed
 try:
     import google.generativeai as genai  # type: ignore
@@ -71,55 +74,90 @@ class GeminiAnalysisService:
                 )
             
             analysis_prompt = f"""
-            You are an expert technical interviewer analyzing a {interview_type} interview for a {role} position at {experience_level} level.
+            You are an expert technical interviewer with 10+ years of experience analyzing {interview_type} interviews for {role} positions at {experience_level} level.
+
+            CONTEXT:
+            - Role: {role} ({experience_level} level)
+            - Interview Type: {interview_type}
+            - Company: {interview_data.get('companyName', 'Technology Company')}
             
-            Interview Transcript:
+            INTERVIEW TRANSCRIPT:
             {transcript}
             
+            ANALYSIS INSTRUCTIONS:
+            Analyze this transcript as if you were evaluating a candidate for hiring. The transcript may contain both interviewer questions and candidate responses. Focus on the candidate's responses, technical depth, communication style, and problem-solving approach.
+
+            For {experience_level} level {role} candidates, expect:
+            - Junior: Basic concepts, willingness to learn, good foundation
+            - Mid: Solid experience, independent work, some leadership
+            - Senior: Deep expertise, mentoring ability, strategic thinking
+            - Lead: Technical vision, team leadership, business alignment
+
             Please provide a comprehensive analysis in the following JSON format:
             {{
                 "overallScore": <integer 1-100>,
-                "overallImpression": "<brief summary in 1-2 sentences>",
+                "overallImpression": "<2-3 sentence summary of candidate performance>",
                 "technicalCompetency": {{
                     "score": <integer 1-100>,
-                    "strengths": ["<strength1>", "<strength2>"],
-                    "weaknesses": ["<weakness1>", "<weakness2>"],
-                    "assessment": "<detailed technical assessment>"
+                    "strengths": ["<specific technical strength>", "<another strength>"],
+                    "weaknesses": ["<area for improvement>", "<another area>"],
+                    "assessment": "<detailed technical assessment with specific examples from transcript>"
                 }},
                 "communicationSkills": {{
                     "score": <integer 1-100>,
                     "clarity": <integer 1-100>,
                     "articulation": <integer 1-100>,
-                    "confidence": <integer 1-100>
+                    "confidence": <integer 1-100>,
+                    "examples": "<specific examples of good/poor communication from transcript>"
                 }},
                 "problemSolving": {{
                     "score": <integer 1-100>,
-                    "approach": "<description of problem-solving approach>",
+                    "approach": "<description of how candidate approached problems>",
                     "creativity": <integer 1-100>,
-                    "logicalThinking": <integer 1-100>
+                    "logicalThinking": <integer 1-100>,
+                    "methodology": "<describe their problem-solving methodology>"
                 }},
                 "keyInsights": [
-                    "<insight1>",
-                    "<insight2>", 
-                    "<insight3>"
+                    "<specific insight about candidate's performance>",
+                    "<notable strength or concern>", 
+                    "<recommendation for improvement>"
                 ],
                 "recommendedAreas": [
-                    "<area1>",
-                    "<area2>"
+                    "<specific skill or knowledge gap to address>",
+                    "<area for professional development>"
                 ],
+                "roleSpecificAssessment": {{
+                    "roleAlignment": <integer 1-100>,
+                    "experienceLevel": "<junior|mid|senior|lead - actual level demonstrated>",
+                    "readiness": "<assessment of readiness for this role>",
+                    "growthPotential": "<assessment of growth potential>"
+                }},
                 "hiringRecommendation": "<hire|conditional_hire|no_hire>",
                 "confidenceLevel": <float 0.0-1.0>,
-                "nextSteps": "<recommended next steps>"
+                "nextSteps": "<specific recommended next steps or additional assessment needs>",
+                "interviewQuality": {{
+                    "responseDepth": <integer 1-100>,
+                    "questionHandling": <integer 1-100>,
+                    "engagement": <integer 1-100>
+                }}
             }}
             
-            Evaluate based on:
-            1. Technical knowledge and problem-solving skills
-            2. Communication clarity and confidence
-            3. Depth of experience and understanding
-            4. Cultural fit and enthusiasm
-            5. Ability to handle challenging questions
+            EVALUATION CRITERIA:
+            1. **Technical Depth**: Knowledge appropriate for {experience_level} {role}
+            2. **Problem-Solving**: Approach, methodology, and logical thinking
+            3. **Communication**: Clarity, articulation, and ability to explain complex concepts
+            4. **Experience**: Relevant background and practical application
+            5. **Cultural Fit**: Enthusiasm, collaboration, and growth mindset
+            6. **Role Readiness**: Ability to perform at expected {experience_level} level
             
-            Provide honest, constructive feedback suitable for both hiring decisions and candidate development.
+            SCORING GUIDELINES:
+            - 90-100: Exceptional, exceeds expectations for level
+            - 80-89: Strong, meets expectations with some standout qualities
+            - 70-79: Good, meets basic expectations for level
+            - 60-69: Below expectations, needs improvement
+            - Below 60: Does not meet minimum requirements
+            
+            Provide honest, constructive feedback that helps both hiring decisions and candidate development. Be specific and reference actual content from the transcript.
             """
             
             response = self.model.generate_content(
@@ -141,13 +179,17 @@ class GeminiAnalysisService:
                         "Problem-solving approach reviewed"
                     ]),
                     "confidenceScore": max(0.0, min(1.0, analysis_data.get("confidenceLevel", 0.8))),
-                    "transcriptAnalysis": self._generate_detailed_analysis(analysis_data),
+                    "transcriptAnalysis": self._generate_enhanced_analysis(analysis_data),
                     "speechAnalysis": self._analyze_speech_patterns(transcript),
                     "emotionalAnalysis": self._analyze_emotional_indicators(transcript),
                     "recommendation": self._format_recommendation(analysis_data.get("hiringRecommendation", "conditional_hire")),
                     "technicalAssessment": analysis_data.get("technicalCompetency", {}),
                     "communicationAssessment": analysis_data.get("communicationSkills", {}),
-                    "problemSolvingAssessment": analysis_data.get("problemSolving", {})
+                    "problemSolvingAssessment": analysis_data.get("problemSolving", {}),
+                    "roleSpecificAssessment": analysis_data.get("roleSpecificAssessment", {}),
+                    "interviewQuality": analysis_data.get("interviewQuality", {}),
+                    "recommendedAreas": analysis_data.get("recommendedAreas", []),
+                    "nextSteps": analysis_data.get("nextSteps", "Further evaluation recommended")
                 }
                 
                 return structured_analysis
@@ -160,26 +202,51 @@ class GeminiAnalysisService:
             print(f"Gemini analysis error: {e}")
             return self._emergency_fallback_analysis()
     
-    def _generate_detailed_analysis(self, analysis_data: Dict[str, Any]) -> str:
-        """Generate a comprehensive analysis summary"""
+    def _generate_enhanced_analysis(self, analysis_data: Dict[str, Any]) -> str:
+        """Generate a comprehensive analysis summary with enhanced details"""
         try:
             technical = analysis_data.get("technicalCompetency", {})
             communication = analysis_data.get("communicationSkills", {})
             problem_solving = analysis_data.get("problemSolving", {})
+            role_specific = analysis_data.get("roleSpecificAssessment", {})
+            interview_quality = analysis_data.get("interviewQuality", {})
             
             analysis_text = f"""
+            OVERALL ASSESSMENT:
+            {analysis_data.get('overallImpression', 'Analysis completed')}
+            
             TECHNICAL COMPETENCY ({technical.get('score', 75)}/100):
             {technical.get('assessment', 'Technical skills assessed')}
+            Strengths: {', '.join(technical.get('strengths', ['Technical knowledge demonstrated']))}
+            Areas for Improvement: {', '.join(technical.get('weaknesses', ['Additional practice recommended']))}
             
             COMMUNICATION SKILLS ({communication.get('score', 75)}/100):
             - Clarity: {communication.get('clarity', 75)}/100
             - Articulation: {communication.get('articulation', 75)}/100  
             - Confidence: {communication.get('confidence', 75)}/100
+            Examples: {communication.get('examples', 'Communication patterns analyzed')}
             
             PROBLEM SOLVING ({problem_solving.get('score', 75)}/100):
-            {problem_solving.get('approach', 'Problem-solving approach evaluated')}
+            Approach: {problem_solving.get('approach', 'Problem-solving approach evaluated')}
+            Methodology: {problem_solving.get('methodology', 'Systematic approach observed')}
+            - Creativity: {problem_solving.get('creativity', 75)}/100
+            - Logical Thinking: {problem_solving.get('logicalThinking', 75)}/100
             
-            RECOMMENDATION: {analysis_data.get('hiringRecommendation', 'Conditional hire')}
+            ROLE-SPECIFIC ASSESSMENT:
+            - Role Alignment: {role_specific.get('roleAlignment', 75)}/100
+            - Experience Level Demonstrated: {role_specific.get('experienceLevel', 'mid')}
+            - Role Readiness: {role_specific.get('readiness', 'Generally prepared for role expectations')}
+            - Growth Potential: {role_specific.get('growthPotential', 'Positive growth trajectory expected')}
+            
+            INTERVIEW PERFORMANCE:
+            - Response Depth: {interview_quality.get('responseDepth', 75)}/100
+            - Question Handling: {interview_quality.get('questionHandling', 75)}/100
+            - Engagement Level: {interview_quality.get('engagement', 75)}/100
+            
+            DEVELOPMENT RECOMMENDATIONS:
+            {chr(10).join(f"• {area}" for area in analysis_data.get('recommendedAreas', ['Continue professional development']))}
+            
+            HIRING RECOMMENDATION: {analysis_data.get('hiringRecommendation', 'Conditional hire').upper()}
             NEXT STEPS: {analysis_data.get('nextSteps', 'Further evaluation recommended')}
             """
             
@@ -187,6 +254,10 @@ class GeminiAnalysisService:
             
         except Exception:
             return "Comprehensive analysis completed with AI evaluation."
+    
+    def _generate_detailed_analysis(self, analysis_data: Dict[str, Any]) -> str:
+        """Legacy method for backward compatibility"""
+        return self._generate_enhanced_analysis(analysis_data)
     
     def _analyze_speech_patterns(self, transcript: str) -> Dict[str, Any]:
         """Analyze speech patterns from transcript"""
@@ -678,15 +749,174 @@ class VapiInterviewService:
         except Exception as e:
             print(f"Vapi transcript error: {e}")
             # Return mock transcript for development
-            return """Interviewer: Hello! I'm conducting a technical interview today. Can you tell me about your experience with software development?
+            return """Interviewer: Hello! Thank you for joining us today. Can you please introduce yourself and tell us about your background?
 
-Candidate: Hi! I have about 3 years of experience in software development, primarily working with Python and JavaScript. I've built several web applications using Django and React.
+Candidate: Hi, thank you for having me. My name is Alex Johnson and I'm a full-stack software developer with about 4 years of experience. I've been working primarily in web development, with strong expertise in JavaScript, React, Node.js, and Python. I also have experience with cloud platforms like AWS and database technologies including PostgreSQL and MongoDB.
 
-Interviewer: That's great! Can you walk me through how you would approach debugging a slow-performing web application?
+Interviewer: That's excellent! Can you walk me through a challenging technical project you've worked on recently?
 
-Candidate: I would start by identifying the bottleneck - whether it's in the frontend, backend, or database. I'd use profiling tools to measure performance, check database queries for efficiency, and optimize any slow endpoints.
+Candidate: Absolutely! Recently I led the development of a real-time collaboration platform for a client - think Google Docs but for code editing. The main challenges were implementing real-time synchronization across multiple users, handling conflict resolution, and maintaining performance with large codebases.
 
-Interviewer: Excellent approach! Thank you for your time today. We'll be in touch soon with feedback."""
+I used WebSockets for real-time communication, implemented operational transformation algorithms for conflict resolution, and optimized the backend with Redis for session management and PostgreSQL for persistence. The frontend was built with React and we used Monaco Editor as the base code editor.
+
+Interviewer: That sounds complex! How did you handle the operational transformation for conflict resolution?
+
+Candidate: Great question! I implemented a custom OT system where each edit operation is timestamped and includes positional metadata. When conflicts occur, we transform the operations based on their timestamps and positions. For example, if two users insert text at the same position, we adjust the second operation's position to account for the first insertion.
+
+I also implemented a central authority server that maintains the canonical state and broadcasts transformed operations to all connected clients. This ensured consistency across all sessions.
+
+Interviewer: Impressive! What about testing? How did you ensure the reliability of such a complex system?
+
+Candidate: Testing was crucial for this project. I wrote comprehensive unit tests for the OT algorithms, integration tests for the WebSocket connections, and end-to-end tests simulating multiple concurrent users. I also implemented property-based testing to verify that our OT functions maintained the required mathematical properties.
+
+For load testing, we used Artillery to simulate hundreds of concurrent users making rapid edits. We also set up monitoring with DataDog to track performance metrics in production.
+
+Interviewer: Excellent approach to testing. Now, let me ask you a technical question. How would you design a system to handle 1 million concurrent users?
+
+Candidate: For 1 million concurrent users, I'd focus on horizontal scalability and efficient resource utilization. I'd start with a microservices architecture deployed on Kubernetes for auto-scaling. 
+
+For the backend, I'd use a load balancer with multiple Node.js instances, implement connection pooling, and use Redis Cluster for session management and caching. The database layer would involve read replicas and sharding strategies.
+
+For real-time features, I'd implement WebSocket connection management with sticky sessions or use a message broker like Redis Pub/Sub or Apache Kafka to coordinate between server instances.
+
+I'd also implement CDN for static assets, database query optimization with proper indexing, and use monitoring tools to identify bottlenecks. Circuit breakers and rate limiting would be essential for system stability.
+
+Interviewer: That's a comprehensive approach! Do you have any questions about our company or the role?
+
+Candidate: Yes, I do! I'm curious about the technical stack you're currently using and what kind of scaling challenges the team is facing. Also, I'd love to know more about the team structure and how you approach code reviews and technical decision-making.
+
+Interviewer: We primarily use React, Node.js, Python for ML services, and AWS for infrastructure. We're currently scaling from 100K to 1M users, so your experience would be very relevant. We work in small cross-functional teams with pair programming and collaborative code reviews.
+
+Candidate: That sounds like an exciting challenge and a great team environment! I'm really interested in contributing to that scaling journey and working with the technologies you mentioned.
+
+Interviewer: Wonderful! Thank you for your time today, Alex. You've demonstrated strong technical knowledge and problem-solving skills. We'll be in touch soon with next steps.
+
+Candidate: Thank you so much! I really enjoyed our conversation and I'm excited about the possibility of joining your team. Have a great day!"""
+
+    async def start_workflow_call(self, workflow_id: str, metadata: Dict[str, Any], phone_number: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Start a Vapi call using a specific workflow ID.
+        This enables AI-guided interview creation where the AI collects preferences and creates the interview.
+        """
+        try:
+            print(f"🚀 Starting Vapi workflow call with ID: {workflow_id}")
+            
+            # Validate configuration
+            config_status = self.validate_configuration()
+            if not config_status["is_configured"]:
+                print(f"[VAPI_WORKFLOW] Configuration issues: {config_status['issues']}")
+                return self._fallback_workflow_response(workflow_id, metadata)
+            
+            async with httpx.AsyncClient() as client:
+                headers = {
+                    "Authorization": f"Bearer {self.vapi_api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                # Prepare workflow call configuration
+                call_config = {
+                    "assistant": {
+                        "workflowId": workflow_id,
+                        "model": {
+                            "provider": "openai",
+                            "model": "gpt-4",
+                            "messages": [{
+                                "role": "system",
+                                "content": f"""You are an AI interview assistant conducting a guided interview setup. 
+                                Your goal is to collect interview preferences and create a personalized interview experience.
+                                
+                                Workflow ID: {workflow_id}
+                                
+                                Follow these steps:
+                                1. Greet the candidate warmly
+                                2. Ask about their target role/position
+                                3. Determine interview type (technical, behavioral, etc.)
+                                4. Assess their experience level
+                                5. Generate appropriate questions
+                                6. Conduct the interview
+                                7. Provide feedback and summary
+                                
+                                Be professional, encouraging, and thorough."""
+                            }]
+                        },
+                        "voice": {
+                            "provider": "playht",
+                            "voiceId": "jennifer"
+                        }
+                    },
+                    "metadata": {
+                        **metadata,
+                        "workflowType": "ai_guided_interview",
+                        "workflowId": workflow_id
+                    }
+                }
+                
+                # Add phone number if provided
+                if phone_number:
+                    call_config["phoneNumberId"] = phone_number
+                    print(f"[VAPI_WORKFLOW] Phone call mode with number: {phone_number}")
+                else:
+                    print(f"[VAPI_WORKFLOW] Web call mode - client-side initialization required")
+                
+                print(f"[VAPI_WORKFLOW] Call config: {json.dumps({k: v for k, v in call_config.items() if k != 'assistant'}, indent=2)}")
+                
+                # Make the API call
+                endpoint = f"{self.base_url}/call"
+                response = await client.post(endpoint, json=call_config, headers=headers)
+                
+                if response.status_code == 201:
+                    call_data = response.json() 
+                    call_id = call_data.get("id")
+                    
+                    print(f"✅ Vapi workflow call created successfully: {call_id}")
+                    
+                    return {
+                        "callId": call_id,
+                        "status": "created",
+                        "workflowId": workflow_id,
+                        "assistantId": call_data.get("assistantId"),
+                        "publicKey": os.getenv("VAPI_PUBLIC_KEY"),
+                        "webUrl": call_data.get("webCallUrl"),
+                        "phoneNumber": phone_number,
+                        "metadata": metadata
+                    }
+                    
+                elif response.status_code == 400:
+                    error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                    print(f"❌ Vapi workflow call failed - Bad Request: {error_data}")
+                    return self._fallback_workflow_response(workflow_id, metadata, f"Bad request: {error_data}")
+                    
+                elif response.status_code == 401:
+                    print(f"❌ Vapi workflow call failed - Authentication error")
+                    return self._fallback_workflow_response(workflow_id, metadata, "Authentication failed")
+                    
+                else:
+                    print(f"❌ Vapi workflow call failed - HTTP {response.status_code}: {response.text}")
+                    return self._fallback_workflow_response(workflow_id, metadata, f"HTTP {response.status_code}")
+                    
+        except Exception as e:
+            print(f"❌ Workflow call error: {e}")
+            return self._fallback_workflow_response(workflow_id, metadata, str(e))
+    
+    def _fallback_workflow_response(self, workflow_id: str, metadata: Dict[str, Any], error: Optional[str] = None) -> Dict[str, Any]:
+        """Generate fallback response for workflow calls when Vapi is not available"""
+        fallback_call_id = f"workflow_mock_{workflow_id[:8]}_{metadata.get('sessionId', 'unknown')[:8]}"
+        
+        return {
+            "callId": fallback_call_id,
+            "status": "mock_workflow",
+            "workflowId": workflow_id,
+            "assistantId": "mock_workflow_assistant",
+            "publicKey": "mock_public_key",
+            "webUrl": None,
+            "phoneNumber": None,
+            "metadata": {
+                **metadata,
+                "mockMode": True,
+                "error": error,
+                "message": "Workflow running in mock mode - Vapi not configured"
+            }
+        }
 
 # Service instances
 gemini_service = GeminiAnalysisService()

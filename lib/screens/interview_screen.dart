@@ -285,10 +285,9 @@ class _InterviewScreenState extends ConsumerState<InterviewScreen> {
             children: [
               Text(
                 'Create Interview',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -304,7 +303,9 @@ class _InterviewScreenState extends ConsumerState<InterviewScreen> {
               ListTile(
                 leading: const Icon(Icons.auto_awesome),
                 title: const Text('Guided Setup (AI)'),
-                subtitle: const Text('Let AI collect details and start interview'),
+                subtitle: const Text(
+                  'Let AI collect details and start interview',
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   Navigator.push(

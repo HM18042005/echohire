@@ -7,6 +7,7 @@ import '../models/interview.dart';
 import 'interview_screen.dart';
 import 'profile_screen.dart';
 import 'interview_detail_screen.dart';
+import 'ai_guided_interview_screen.dart';
 
 /// HomeScreen serves as the main dashboard for authenticated users
 class HomeScreen extends ConsumerStatefulWidget {
@@ -40,6 +41,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: pages),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const AIGuidedInterviewScreen(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.auto_awesome),
+        label: const Text('AI Interview'),
+        backgroundColor: Colors.blue.shade600,
+        foregroundColor: Colors.white,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),

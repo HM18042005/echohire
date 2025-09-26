@@ -667,6 +667,55 @@ class ApiService {
     }
   }
 
+  /// Creates an AI guided interview using the universal workflow configuration
+  Future<Map<String, dynamic>> createAIGuidedInterview({
+    String? candidateName,
+    String? jobTitle,
+    String? companyName,
+    String interviewType = 'technical',
+    String experienceLevel = 'mid',
+    String? phone,
+  }) async {
+    try {
+      final url = Uri.parse('$_baseUrl/interviews/ai-guided');
+
+      final body = {
+        // workflowId is now universal and handled by backend
+        if (candidateName != null) 'candidateName': candidateName,
+        if (jobTitle != null) 'jobTitle': jobTitle,
+        if (companyName != null) 'companyName': companyName,
+        'interviewType': interviewType,
+        'experienceLevel': experienceLevel,
+        if (phone != null) 'phone': phone,
+      };
+
+      final response = await _client
+          .post(url, headers: await _getAuthHeaders(), body: json.encode(body))
+          .timeout(
+            const Duration(seconds: 60),
+            onTimeout: () => throw Exception('Request timeout'),
+          );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        try {
+          return json.decode(response.body) as Map<String, dynamic>;
+        } catch (e) {
+          throw ParseException(
+            'Failed to parse AI guided interview response: $e',
+          );
+        }
+      }
+
+      _handleResponse(response, 'Create AI guided interview');
+      return {};
+    } catch (e) {
+      if (e is ApiException || e is NetworkException || e is ParseException) {
+        rethrow;
+      }
+      throw NetworkException('Failed to create AI guided interview: $e');
+    }
+  }
+
   /// Gets a specific interview by ID
   Future<Map<String, dynamic>> getInterview(String interviewId) async {
     try {
@@ -711,6 +760,19 @@ class ApiService {
       return resp.statusCode >= 200 && resp.statusCode < 300;
     } catch (e) {
       print('❌ Failed to send Vapi callId: $e');
+      return false;
+    }
+  }
+
+  /// Mark an AI interview as completed when the client ends the call
+  Future<bool> completeAIInterview(String interviewId) async {
+    final url = Uri.parse('$_baseUrl/interviews/$interviewId/complete-ai');
+    try {
+      final resp = await _client.post(url, headers: await _getAuthHeaders());
+      _handleResponse(resp, 'Complete AI Interview');
+      return resp.statusCode >= 200 && resp.statusCode < 300;
+    } catch (e) {
+      print('❌ Failed to complete AI interview: $e');
       return false;
     }
   }
