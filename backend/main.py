@@ -678,15 +678,17 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                     try {
                                         client = new VapiCtor(publicKey);
                                     } catch (e1) {
-                                        try { client = new VapiCtor({ publicKey }); }
-                                        catch (e2) {
+                                        try { 
+                                            client = new VapiCtor({ publicKey }); 
+                                        } catch (e2) {
                                             // Some builds may expose constructor under a property as well (rare)
                                             try {
                                                 const alt = (VapiCtor && VapiCtor.default) || (VapiCtor && VapiCtor.Vapi);
                                                 if (typeof alt === 'function') {
                                                     try { client = new alt(publicKey); } catch(_) { client = new alt({ publicKey }); }
-                                            }
-                                        } catch(_) {}
+                                                }
+                                            } catch(_) {}
+                                        }
                                         // Factory fallback: some builds might expose a createClient function
                                         if (!client) {
                                             try {

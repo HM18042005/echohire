@@ -18,8 +18,15 @@ import asyncio
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
-import google.generativeai as genai
 import os
+
+# Optional AI imports - graceful fallback if not available
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    genai = None
+    GENAI_AVAILABLE = False
 from datetime import datetime
 
 
@@ -88,8 +95,11 @@ class InterviewSetupAssistant:
             gemini_api_key (str): API key for Google Gemini AI
         """
         self.gemini_api_key = gemini_api_key
-        genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        if GENAI_AVAILABLE:
+            genai.configure(api_key=gemini_api_key)
+            self.model = genai.GenerativeModel('gemini-pro')
+        else:
+            self.model = None
         self.sessions: Dict[str, InterviewSession] = {}
     
     def create_session(self, session_id: str) -> InterviewSession:
@@ -283,6 +293,10 @@ Make sure the JSON is valid and contains exactly 5 questions.
 """
 
         try:
+            if not self.model:
+                # Fallback when AI is not available
+                return self._get_fallback_questions(preferences)
+            
             response = await asyncio.to_thread(self.model.generate_content, prompt)
             questions_text = response.text.strip()
             
@@ -541,6 +555,10 @@ Focus on practical advice they can use in real interviews.
 """
 
         try:
+            if not self.model:
+                # Fallback feedback when AI is not available
+                return f"Good answer! You provided relevant information. To strengthen your response, consider adding more specific examples or metrics to demonstrate your impact. Keep up the great work!"
+            
             response = await asyncio.to_thread(self.model.generate_content, prompt)
             return response.text.strip()
         except Exception as e:
