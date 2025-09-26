@@ -469,6 +469,7 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                     const interviewId = qs.get('interviewId') || '';
                     let metadata = {};
                     try { metadata = JSON.parse(decodeURIComponent(qs.get('metadata') || '%7B%7D')); } catch(_e) { metadata = {}; }
+                    let client = null;
 
                     updateStatus('UA: ' + navigator.userAgent);
                     updateStatus('Loading Vapi SDK (ESM)…');
@@ -643,6 +644,7 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                         window.__vapiUmdLoading = false;
                                     });
                                 }
+                                await umdLoadPromise;
                                                             // Try common UMD globals
                                                             if (window.Vapi) {
                                                                 updateStatus('Found window.Vapi after UMD');
