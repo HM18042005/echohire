@@ -522,12 +522,29 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                         const allKeys = [...Object.keys(Mod), ...(Mod.default ? Object.keys(Mod.default) : [])];
                                         updateStatus('Examining all available keys: ' + allKeys.join(', '));
                                         
-                                        for (const key of allKeys) {
-                                            const val = Mod[key] || (Mod.default && Mod.default[key]);
-                                            if (typeof val === 'function' && (/Vapi|Client/i.test(key) || val.prototype)) {
-                                                updateStatus('Found potential constructor: ' + key);
-                                                VapiCtor = val;
-                                                break;
+                                        // First try default export itself as constructor
+                                        if (Mod.default && typeof Mod.default === 'function') {
+                                            updateStatus('Testing default export as constructor');
+                                            try {
+                                                const testInstance = new Mod.default(publicKey);
+                                                if (testInstance) {
+                                                    updateStatus('Default export IS the constructor!');
+                                                    VapiCtor = Mod.default;
+                                                }
+                                            } catch (e) {
+                                                updateStatus('Default export not a valid constructor: ' + e.message);
+                                            }
+                                        }
+                                        
+                                        // If default didn't work, try other keys
+                                        if (!VapiCtor) {
+                                            for (const key of allKeys) {
+                                                const val = Mod[key] || (Mod.default && Mod.default[key]);
+                                                if (typeof val === 'function' && (/Vapi|Client/i.test(key) || val.prototype)) {
+                                                    updateStatus('Found potential constructor: ' + key);
+                                                    VapiCtor = val;
+                                                    break;
+                                                }
                                             }
                                         }
                                     } catch (e) {
