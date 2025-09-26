@@ -424,28 +424,65 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
         <title>EchoHire • AI Interview</title>
         <style>
-            html, body { margin:0; padding:0; height:100%; background:#0b1021; color:#fff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; }
+            html, body { margin:0; padding:0; height:100%; background:#0b1021; color:#fff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; transition: background-color 0.3s ease; }
             #app { display:flex; align-items:center; justify-content:center; height:100%; flex-direction:column; gap:20px; text-align:center; padding:20px; }
             .badge { padding:8px 14px; border-radius:999px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); }
             button { padding:12px 22px; background:#3b82f6; color:#fff; border:none; border-radius:12px; font-size:16px; cursor:pointer; }
+            .status-indicator { position: fixed; top: 20px; right: 20px; padding: 10px 15px; border-radius: 8px; background: rgba(0,0,0,0.8); color: white; font-size: 14px; z-index: 1000; }
+            .audio-level { position: fixed; top: 20px; left: 20px; width: 100px; height: 20px; background: rgba(0,0,0,0.3); border-radius: 10px; overflow: hidden; }
+            .audio-level-bar { height: 100%; background: #4ade80; width: 0%; transition: width 0.1s ease; }
             button:disabled { background:#666; }
             .hidden { display:none; }
         </style>
     </head>
     <body>
+        <div class="audio-level">
+            <div class="audio-level-bar" id="audioBar"></div>
+        </div>
+        <div class="status-indicator" id="statusIndicator">Initializing...</div>
+        
         <div id=\"app\">
-            <div style=\"font-size:18px; opacity:.9\">EchoHire • AI Interview</div>
+            <div style=\"font-size:18px; opacity:.9\">🎤 EchoHire • AI Interview</div>
             <div id=\"status\" class=\"badge\">Preparing interview…</div>
             <button id=\"endBtn\" class=\"hidden\" disabled>End Interview</button>
+            <div style="margin-top: 20px; font-size: 14px; opacity: 0.7; max-width: 400px;">
+                💡 Make sure your microphone is enabled. You'll see visual cues when the AI is listening or speaking.
+            </div>
+            <div style="margin-top: 10px; font-size: 12px; opacity: 0.5; max-width: 400px;">
+                🔧 Troubleshooting: If you can't hear audio, check device volume and ensure no other apps are using the microphone.
+            </div>
         </div>
         <script>
             (async function() {
                 const statusEl = document.getElementById('status');
                 const endBtn = document.getElementById('endBtn');
+                const statusIndicator = document.getElementById('statusIndicator');
+                const audioBar = document.getElementById('audioBar');
+                
                 function updateStatus(msg, showBtn=false) {
                     statusEl.textContent = msg;
+                    statusIndicator.textContent = msg;
                     if (showBtn) { endBtn.style.display='inline-block'; endBtn.disabled=false; }
                     try { if (typeof statusUpdate !== 'undefined' && statusUpdate.postMessage) statusUpdate.postMessage(msg); } catch(_){}
+                }
+                
+                function updateAudioLevel(level) {
+                    const percentage = Math.min(100, Math.max(0, level * 100));
+                    audioBar.style.width = percentage + '%';
+                }
+                
+                // Check microphone permissions
+                async function checkMicrophonePermission() {
+                    try {
+                        updateStatus('🎤 Checking microphone access...');
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        stream.getTracks().forEach(track => track.stop()); // Clean up
+                        updateStatus('✅ Microphone access granted');
+                        return true;
+                    } catch (error) {
+                        updateStatus('❌ Microphone access required. Please enable microphone permissions.');
+                        return false;
+                    }
                 }
 
                 // Global error hooks
@@ -463,6 +500,13 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                 });
 
                 try {
+                    // Check microphone permission first
+                    const hasMicAccess = await checkMicrophonePermission();
+                    if (!hasMicAccess) {
+                        updateStatus('🚫 Cannot start interview without microphone access');
+                        return;
+                    }
+                    
                     const qs = new URLSearchParams(window.location.search);
                     const publicKey = qs.get('publicKey') || '';
                     const assistantId = qs.get('assistantId') || '';
@@ -758,6 +802,18 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                         }
                     };
 
+                    // Debug: Test audio capabilities
+                    try {
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        updateStatus('🔊 Audio context state: ' + audioContext.state);
+                        if (audioContext.state === 'suspended') {
+                            await audioContext.resume();
+                            updateStatus('🔊 Audio context resumed');
+                        }
+                    } catch (e) {
+                        updateStatus('⚠️ Audio context issue: ' + e.message);
+                    }
+
                     updateStatus('Starting interview…');
                     let call=null; try { call = await client.start(assistantId); } catch(e) { logError('Start failed', e); throw e; }
                     try { updateStatus('Start returned: ' + JSON.stringify(call)); } catch(_e){}
@@ -765,10 +821,52 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                     updateStatus('Interview started (ID: ' + (immediateId || 'unknown') + ')', true);
                     maybeSendCallId('start()', call);
 
-                    client.on('call-start', function(evt) { updateStatus('Interview in progress…', true); try { updateStatus('call-start evt: ' + JSON.stringify(evt)); } catch(_e){} maybeSendCallId('call-start', evt); });
-                    client.on('speech-start', function() { updateStatus('Listening…', true); });
-                    client.on('speech-end', function() { updateStatus('Processing your response…', true); });
-                    client.on('call-end', function() { updateStatus('Interview completed.'); if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('done'); });
+                    // Enhanced event handling with audio feedback
+                    client.on('call-start', function(evt) { 
+                        updateStatus('🎤 Interview Started - You can speak now!', true); 
+                        document.body.style.backgroundColor = '#e8f5e8';
+                        try { updateStatus('call-start evt: ' + JSON.stringify(evt)); } catch(_e){} 
+                        maybeSendCallId('call-start', evt); 
+                    });
+                    
+                    client.on('speech-start', function() { 
+                        updateStatus('🎙️ Listening... (I can hear you speaking)', true); 
+                        document.body.style.backgroundColor = '#fff3cd';
+                    });
+                    
+                    client.on('speech-end', function() { 
+                        updateStatus('⏳ Processing your response...', true); 
+                        document.body.style.backgroundColor = '#d1ecf1';
+                    });
+                    
+                    client.on('assistant-speaking-started', function() { 
+                        updateStatus('🤖 AI is speaking - Listen carefully!', true); 
+                        document.body.style.backgroundColor = '#f8d7da';
+                    });
+                    
+                    client.on('assistant-speaking-ended', function() { 
+                        updateStatus('✅ Your turn to speak!', true); 
+                        document.body.style.backgroundColor = '#e8f5e8';
+                    });
+                    
+                    client.on('call-end', function() { 
+                        updateStatus('✅ Interview completed successfully!'); 
+                        document.body.style.backgroundColor = '#d4edda';
+                        if (typeof callEnded !== 'undefined' && callEnded.postMessage) callEnded.postMessage('done'); 
+                    });
+                    
+                    // Audio and microphone status events
+                    client.on('volume-level', function(level) {
+                        updateAudioLevel(level);
+                        if (level > 0.1) {
+                            statusIndicator.textContent = '🔊 Speaking... (' + Math.round(level * 100) + '%)';
+                        }
+                    });
+                    
+                    client.on('error', function(e) { 
+                        logError('Error', e); 
+                        document.body.style.backgroundColor = '#f8d7da';
+                    });
 
                     endBtn.onclick = function() {
                         endBtn.disabled = true; 
