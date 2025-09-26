@@ -477,8 +477,10 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                     // ESM-first loader to avoid UMD/CommonJS issues
                     let Mod = null;
                     const esmCandidates = [
+                        'https://esm.sh/@vapi-ai/web@latest?bundle',
+                        'https://esm.sh/@vapi-ai/web@latest',
                         'https://cdn.jsdelivr.net/npm/@vapi-ai/web@latest/+esm',
-                        'https://esm.sh/@vapi-ai/web@latest'
+                        'https://unpkg.com/@vapi-ai/web@latest?module'
                     ];
                     for (let i=0; !Mod && i<esmCandidates.length; i++) {
                         const url = esmCandidates[i];
@@ -497,6 +499,7 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                 const constructorCandidates = [
                                     function() { return Mod; },                           // module itself is the ctor
                                     function() { return Mod && Mod.default; },            // default export is ctor
+                                    function() { return Mod && Mod.default && Mod.default.default; }, // double-default pattern
                                     function() { return Mod && Mod.default && Mod.default.Vapi; },  // nested under default
                                     function() { return Mod && Mod.Vapi; },               // named export Vapi
                                     function() { return Mod && Mod.WebVapi; },            // try another plausible name
@@ -625,7 +628,7 @@ async def vapi_web_page(publicKey: str, assistantId: str, metadata: str = "{}", 
                                 let umdLoadPromise = Promise.resolve();
                                 if (!window.__vapiUmdLoading) {
                                     window.__vapiUmdLoading = true;
-                                    for (let i = 0; i < umdCandidates.length && !window.Vapi; i++) {
+                                    for (let i = 0; i < umdCandidates.length && !window.Vapi && !window.vapi && i < 1; i++) {
                                         const url = umdCandidates[i];
                                         umdLoadPromise = umdLoadPromise.then(function() {
                                             // Clear any previous failed attempts
