@@ -667,27 +667,15 @@ class ApiService {
     }
   }
 
-  /// Creates an AI guided interview using the universal workflow configuration
+  /// Creates an AI guided interview - only company name required
+  /// The AI assistant will ask for job title, experience level, etc.
   Future<Map<String, dynamic>> createAIGuidedInterview({
-    String? candidateName,
-    String? jobTitle,
-    String? companyName,
-    String interviewType = 'technical',
-    String experienceLevel = 'mid',
-    String? phone,
+    required String companyName,
   }) async {
     try {
       final url = Uri.parse('$_baseUrl/interviews/ai-guided');
 
-      final body = {
-        // workflowId is now universal and handled by backend
-        if (candidateName != null) 'candidateName': candidateName,
-        if (jobTitle != null) 'jobTitle': jobTitle,
-        if (companyName != null) 'companyName': companyName,
-        'interviewType': interviewType,
-        'experienceLevel': experienceLevel,
-        if (phone != null) 'phone': phone,
-      };
+      final body = {'companyName': companyName.trim()};
 
       final response = await _client
           .post(url, headers: await _getAuthHeaders(), body: json.encode(body))
