@@ -5,6 +5,9 @@ from typing import Dict, Any, List, Optional
 # Universal Vapi Workflow Configuration
 UNIVERSAL_WORKFLOW_ID = "7894c32f-8b29-4e71-90f3-a19047832a21"
 
+# Control whether the backend should attempt to kick off web-based workflow calls
+AUTO_INITIATE_WEB_WORKFLOW = os.getenv("AUTO_INITIATE_WEB_WORKFLOW", "1") == "1"
+
 # Make google.generativeai optional so the backend doesn't crash if the package isn't installed
 try:
     import google.generativeai as genai  # type: ignore
@@ -375,6 +378,25 @@ class VapiInterviewService:
         else:
             print(f"[VAPI_INIT] API key configured successfully (length: {len(self.vapi_api_key)})")
             self.is_configured = True
+
+        self.auto_init_web_workflow = AUTO_INITIATE_WEB_WORKFLOW
+        print(f"[VAPI_INIT] Auto-init web workflow: {self.auto_init_web_workflow}")
+
+    def _client_init_response(self, workflow_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Return standard response instructing clients to initialize web call themselves."""
+        return {
+            "callId": "web_call_client_side",
+            "status": "ready_for_client_init",
+            "message": "Use this configuration to initialize web call from client-side",
+            "webCallUrl": None,
+            "assistantId": self.vapi_assistant_id,
+            "publicKey": os.getenv("VAPI_PUBLIC_KEY"),
+            "workflowId": workflow_id,
+            "metadata": {
+                **(metadata or {}),
+                "initMode": "client",
+            },
+        }
     
     def validate_configuration(self) -> Dict[str, Any]:
         """Validate Vapi configuration and return detailed status"""
@@ -851,12 +873,23 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                     }
                 }
                 
+                # Determine call mode
+                web_call_mode = not bool(phone_number)
+
                 # Add phone number if provided
                 if phone_number:
                     call_config["phoneNumberId"] = phone_number
                     print(f"[VAPI_WORKFLOW] Phone call mode with number: {phone_number}")
                 else:
-                    print(f"[VAPI_WORKFLOW] Web call mode - client-side initialization required")
+                    if not self.auto_init_web_workflow:
+                        print(f"[VAPI_WORKFLOW] Auto-init disabled; returning client-side init payload")
+                        return self._client_init_response(workflow_id, metadata)
+                    call_config.setdefault("channel", {"type": "client"})
+                    call_config["client"] = {
+                        "synchronous": True,
+                        "startCall": True,
+                    }
+                    print(f"[VAPI_WORKFLOW] Web call mode - attempting server-side initiation")
                 
                 print(f"[VAPI_WORKFLOW] Call config: {json.dumps({k: v for k, v in call_config.items() if k != 'assistant'}, indent=2)}")
                 
@@ -864,7 +897,7 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                 endpoint = f"{self.base_url}/call"
                 response = await client.post(endpoint, json=call_config, headers=headers)
                 
-                if response.status_code == 201:
+                if response.status_code in (200, 201):
                     call_data = response.json() 
                     call_id = call_data.get("id")
                     
@@ -872,30 +905,51 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                     
                     return {
                         "callId": call_id,
-                        "status": "created",
+                        "status": call_data.get("status", "created"),
                         "workflowId": workflow_id,
                         "assistantId": call_data.get("assistantId"),
                         "publicKey": os.getenv("VAPI_PUBLIC_KEY"),
-                        "webUrl": call_data.get("webCallUrl"),
+                        "webUrl": call_data.get("webCallUrl") or call_data.get("clientUrl"),
                         "phoneNumber": phone_number,
                         "metadata": metadata
                     }
-                    
-                elif response.status_code == 400:
-                    error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
-                    print(f"❌ Vapi workflow call failed - Bad Request: {error_data}")
-                    return self._fallback_workflow_response(workflow_id, metadata, f"Bad request: {error_data}")
-                    
-                elif response.status_code == 401:
-                    print(f"❌ Vapi workflow call failed - Authentication error")
-                    return self._fallback_workflow_response(workflow_id, metadata, "Authentication failed")
-                    
+                error_body: Optional[Any] = None
+                if response.headers.get("content-type", "").startswith("application/json"):
+                    try:
+                        error_body = response.json()
+                    except Exception:
+                        error_body = response.text
                 else:
-                    print(f"❌ Vapi workflow call failed - HTTP {response.status_code}: {response.text}")
-                    return self._fallback_workflow_response(workflow_id, metadata, f"HTTP {response.status_code}")
+                    error_body = response.text
+
+                print(f"❌ Vapi workflow call failed - HTTP {response.status_code}: {error_body}")
+
+                if web_call_mode:
+                    print("[VAPI_WORKFLOW] Falling back to client-side init for web call")
+                    fallback_meta = {
+                        **metadata,
+                        "workflowError": error_body,
+                        "workflowStatus": response.status_code,
+                    }
+                    return self._client_init_response(workflow_id, fallback_meta)
+
+                if response.status_code == 400:
+                    return self._fallback_workflow_response(workflow_id, metadata, f"Bad request: {error_body}")
+                if response.status_code == 401:
+                    return self._fallback_workflow_response(workflow_id, metadata, "Authentication failed")
+
+                return self._fallback_workflow_response(workflow_id, metadata, f"HTTP {response.status_code}")
                     
         except Exception as e:
             print(f"❌ Workflow call error: {e}")
+            if not phone_number and self.auto_init_web_workflow:
+                print("[VAPI_WORKFLOW] Exception during web call initiation, providing client-side init payload")
+                fallback_meta = {
+                    **metadata,
+                    "workflowError": str(e),
+                    "workflowStatus": "exception",
+                }
+                return self._client_init_response(workflow_id, fallback_meta)
             return self._fallback_workflow_response(workflow_id, metadata, str(e))
     
     def _fallback_workflow_response(self, workflow_id: str, metadata: Dict[str, Any], error: Optional[str] = None) -> Dict[str, Any]:
