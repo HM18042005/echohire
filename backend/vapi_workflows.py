@@ -22,7 +22,7 @@ import os
 
 # Optional AI imports - graceful fallback if not available
 try:
-    import google.generativeai as genai
+    import google.generativeai as genai  # type: ignore
     GENAI_AVAILABLE = True
 except ImportError:
     genai = None
@@ -95,11 +95,32 @@ class InterviewSetupAssistant:
             gemini_api_key (str): API key for Google Gemini AI
         """
         self.gemini_api_key = gemini_api_key
-        if GENAI_AVAILABLE:
-            genai.configure(api_key=gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
-        else:
-            self.model = None
+        self.model = None
+        self.model_name: Optional[str] = None
+
+        if GENAI_AVAILABLE and gemini_api_key and gemini_api_key != "your-gemini-api-key-here":
+            try:
+                genai.configure(api_key=gemini_api_key)
+                preferred_models = [
+                    "gemini-1.5-pro-latest",
+                    "gemini-1.5-pro",
+                    "gemini-1.5-flash",
+                    "gemini-1.0-pro",
+                ]
+                for model_name in preferred_models:
+                    try:
+                        self.model = genai.GenerativeModel(model_name)
+                        self.model_name = model_name
+                        print(f"[WORKFLOW_GEMINI] Using model: {model_name}")
+                        break
+                    except Exception as model_error:
+                        print(f"[WORKFLOW_GEMINI] Model {model_name} unavailable ({model_error}). Trying next...")
+                        continue
+            except Exception as configure_err:
+                print(f"[WORKFLOW_GEMINI] Gemini init failed: {configure_err}")
+
+        if self.model is None:
+            print("[WORKFLOW_GEMINI] Gemini model unavailable. Workflow assistant will use fallback responses.")
         self.sessions: Dict[str, InterviewSession] = {}
     
     def create_session(self, session_id: str) -> InterviewSession:

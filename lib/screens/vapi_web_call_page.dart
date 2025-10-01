@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -330,12 +331,9 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
       ..addJavaScriptChannel(
         'statusUpdate',
         onMessageReceived: (JavaScriptMessage message) {
-          // Print status updates from the embedded page to help diagnose SDK loading
-          // and call lifecycle events.
-          // Example messages: "Loading SDK from: <url>", "Creating Vapi client…", etc.
-          // You can also surface these in the UI if needed.
-          // ignore: avoid_print
-          print('[VapiWebView] ${message.message}');
+          if (kDebugMode) {
+            debugPrint('[VapiWebView] ${message.message}');
+          }
         },
       )
       ..addJavaScriptChannel(
@@ -371,7 +369,9 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
               widget.interviewId,
             );
           } catch (e) {
-            print('Error completing interview: $e');
+            if (kDebugMode) {
+              debugPrint('Error completing interview: $e');
+            }
           }
           widget.onCallEnded?.call();
           if (mounted) Navigator.of(context).pop();
@@ -382,7 +382,7 @@ class _VapiWebCallPageState extends State<VapiWebCallPage> {
     if (_controller.platform is AndroidWebViewController) {
       final androidController =
           _controller.platform as AndroidWebViewController;
-      AndroidWebViewController.enableDebugging(true);
+      AndroidWebViewController.enableDebugging(kDebugMode);
       androidController.setMediaPlaybackRequiresUserGesture(false);
       androidController.setOnPlatformPermissionRequest((request) {
         // Grant all requested resources (e.g., AUDIO_CAPTURE, VIDEO_CAPTURE)

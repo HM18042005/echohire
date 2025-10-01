@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
 import '../models/interview.dart';
-import '../config.dart';
 
 class InterviewState {
   final List<Interview> interviews;
@@ -73,42 +72,7 @@ class InterviewController extends StateNotifier<InterviewState> {
 
       state = state.copyWith(interviews: interviews, isLoading: false);
     } catch (e) {
-      print('Error loading interviews: $e');
-
-      // If it's a timeout or connection error, provide fallback data (when mocks enabled)
-      final looksLikeConnectivityIssue = e.toString().contains(
-        RegExp(
-          'TimeoutException|SocketException|connection|Failed to fetch interviews',
-        ),
-      );
-      if (AppConfig.enableMocks && looksLikeConnectivityIssue) {
-        print('Connection issue detected, using fallback data');
-
-        // Provide some mock data for development
-        final mockInterviews = [
-          Interview(
-            id: 'mock-1',
-            jobTitle: 'Flutter Developer',
-            companyName: 'Tech Corp',
-            interviewDate: DateTime.now().add(const Duration(days: 1)),
-            status: InterviewStatus.scheduled,
-            userId: 'user123',
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-            role: 'Flutter Developer',
-            type: 'Technical',
-            level: 'Mid-level',
-          ),
-        ];
-
-        state = state.copyWith(
-          interviews: mockInterviews,
-          isLoading: false,
-          error: 'Using offline mode - ${e.toString()}',
-        );
-      } else {
-        state = state.copyWith(isLoading: false, error: e.toString());
-      }
+      state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 

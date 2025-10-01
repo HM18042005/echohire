@@ -9,19 +9,14 @@ class AppConfig {
       'prod' => '.env.production',
       _ => '.env',
     };
-    print('🔧 Loading environment file: $fileName (ENV=$env)');
     await dotenv.load(fileName: fileName);
-    print('🌐 Loaded BASE_URL: ${dotenv.env['BASE_URL']}');
   }
 
   static String get baseUrl {
     final value = dotenv.env['BASE_URL'];
     if (value == null || value.isEmpty) {
-      // Safe fallback to emulator mapping if not configured
-      print('⚠️  BASE_URL not found in env, using fallback');
-      return 'http://10.0.2.2:8000';
+      throw StateError('BASE_URL is not configured.');
     }
-    print('✅ Using BASE_URL: $value');
     return value;
   }
 
@@ -34,10 +29,10 @@ class AppConfig {
   static bool get isDev => envName == 'dev';
 
   /// Whether mock/offline fallbacks are enabled.
-  /// Controlled by `.env` key `ENABLE_MOCKS`. If absent, defaults to `isDev`.
+  /// Controlled by `.env` key `ENABLE_MOCKS`. Defaults to `false` when absent.
   static bool get enableMocks {
     final v = dotenv.env['ENABLE_MOCKS'];
-    if (v == null) return isDev;
+    if (v == null) return false;
     final lower = v.toLowerCase();
     return lower == '1' || lower == 'true' || lower == 'yes';
   }

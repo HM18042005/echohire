@@ -27,6 +27,7 @@ class GeminiAnalysisService:
     def __init__(self):
         # Default state
         self.model = None
+        self.model_name: Optional[str] = None
         self.safety_settings = []
 
         # Check if API key and package are configured
@@ -45,7 +46,26 @@ class GeminiAnalysisService:
         # Configure SDK and initialize model
         try:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            preferred_models = [
+                "gemini-1.5-pro-latest",
+                "gemini-1.5-pro",
+                "gemini-1.5-flash",
+                "gemini-1.0-pro",
+            ]
+            for model_name in preferred_models:
+                try:
+                    self.model = genai.GenerativeModel(model_name)
+                    self.model_name = model_name
+                    break
+                except Exception as model_error:
+                    print(f"WARNING: Gemini model {model_name} unavailable ({model_error}). Trying fallback...")
+                    continue
+
+            if not self.model:
+                print("WARNING: No compatible Gemini model available. AI analysis will use fallback.")
+                self.is_configured = False
+                return
+
             self.safety_settings = [
                 {
                     "category": "HARM_CATEGORY_HARASSMENT",
@@ -56,6 +76,7 @@ class GeminiAnalysisService:
                     "threshold": "BLOCK_MEDIUM_AND_ABOVE"
                 }
             ]
+            print(f"[GEMINI_INIT] Using model: {self.model_name}")
             self.is_configured = True
         except Exception as e:
             print(f"Error initializing Gemini model: {e}")
@@ -203,7 +224,7 @@ class GeminiAnalysisService:
             
         except Exception as e:
             print(f"Gemini analysis error: {e}")
-            return self._emergency_fallback_analysis()
+            return self._emergency_fallback_analysis(role, interview_type)
     
     def _generate_enhanced_analysis(self, analysis_data: Dict[str, Any]) -> str:
         """Generate a comprehensive analysis summary with enhanced details"""
@@ -320,11 +341,11 @@ class GeminiAnalysisService:
             "recommendation": "Further review recommended based on AI analysis"
         }
     
-    def _emergency_fallback_analysis(self) -> Dict[str, Any]:
+    def _emergency_fallback_analysis(self, role: str, interview_type: str) -> Dict[str, Any]:
         """Emergency fallback when all analysis fails"""
         return {
             "overallScore": 70,
-            "overallImpression": "Interview completed - manual review recommended",
+            "overallImpression": f"Interview completed - manual review recommended for {role} {interview_type} interview",
             "keyInsights": [
                 "Technical interview conducted",
                 "Response quality evaluated", 
@@ -334,7 +355,43 @@ class GeminiAnalysisService:
             "transcriptAnalysis": "AI analysis temporarily unavailable - manual review recommended",
             "speechAnalysis": {"pace": "moderate", "clarity": "adequate"},
             "emotionalAnalysis": {"confidence": 0.6, "enthusiasm": 0.5, "stress": 0.4},
-            "recommendation": "Manual review required - AI analysis unavailable"
+            "recommendation": "Manual review required - AI analysis unavailable",
+            "technicalAssessment": {
+                "score": 68,
+                "strengths": ["Baseline technical competency observed"],
+                "weaknesses": ["Detailed AI insights unavailable"],
+                "assessment": "Automated analysis unavailable. Please review candidate responses manually.",
+            },
+            "communicationAssessment": {
+                "score": 70,
+                "clarity": 70,
+                "articulation": 68,
+                "confidence": 65,
+                "examples": "Communication metrics unavailable due to AI fallback.",
+            },
+            "problemSolvingAssessment": {
+                "score": 69,
+                "approach": "Problem-solving indicators require manual verification.",
+                "creativity": 65,
+                "logicalThinking": 68,
+                "methodology": "Review transcript to assess structured thinking and methodology.",
+            },
+            "roleSpecificAssessment": {
+                "roleAlignment": 70,
+                "experienceLevel": "mid",
+                "readiness": "Manual evaluation required to confirm readiness.",
+                "growthPotential": "Manual evaluation required to gauge growth potential.",
+            },
+            "interviewQuality": {
+                "responseDepth": 68,
+                "questionHandling": 70,
+                "engagement": 72,
+            },
+            "recommendedAreas": [
+                "Review candidate's technical depth manually",
+                "Assess communication nuances via transcript",
+            ],
+            "nextSteps": "Conduct manual review or rerun AI analysis when available",
         }
 
 class VapiInterviewService:
@@ -836,42 +893,29 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                 }
                 
                 # Prepare workflow call configuration
-                call_config = {
-                    "assistant": {
-                        "workflowId": workflow_id,
-                        "model": {
-                            "provider": "openai",
-                            "model": "gpt-4",
-                            "messages": [{
-                                "role": "system",
-                                "content": f"""You are an AI interview assistant conducting a guided interview setup. 
-                                Your goal is to collect interview preferences and create a personalized interview experience.
-                                
-                                Workflow ID: {workflow_id}
-                                
-                                Follow these steps:
-                                1. Greet the candidate warmly
-                                2. Ask about their target role/position
-                                3. Determine interview type (technical, behavioral, etc.)
-                                4. Assess their experience level
-                                5. Generate appropriate questions
-                                6. Conduct the interview
-                                7. Provide feedback and summary
-                                
-                                Be professional, encouraging, and thorough."""
-                            }]
-                        },
-                        "voice": {
-                            "provider": "playht",
-                            "voiceId": "jennifer"
-                        }
-                    },
+                call_config: Dict[str, Any] = {
+                    "type": "workflow",
+                    "workflowId": workflow_id,
                     "metadata": {
                         **metadata,
                         "workflowType": "ai_guided_interview",
                         "workflowId": workflow_id
                     }
                 }
+
+                if self.vapi_assistant_id:
+                    call_config["assistantId"] = self.vapi_assistant_id
+                else:
+                    call_config["assistant"] = {
+                        "model": {
+                            "provider": "openai",
+                            "model": "gpt-4",
+                        },
+                        "voice": {
+                            "provider": "playht",
+                            "voiceId": "jennifer"
+                        }
+                    }
                 
                 # Determine call mode
                 web_call_mode = not bool(phone_number)
@@ -884,14 +928,11 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                     if not self.auto_init_web_workflow:
                         print(f"[VAPI_WORKFLOW] Auto-init disabled; returning client-side init payload")
                         return self._client_init_response(workflow_id, metadata)
-                    call_config.setdefault("channel", {"type": "client"})
-                    call_config["client"] = {
-                        "synchronous": True,
-                        "startCall": True,
-                    }
                     print(f"[VAPI_WORKFLOW] Web call mode - attempting server-side initiation")
                 
-                print(f"[VAPI_WORKFLOW] Call config: {json.dumps({k: v for k, v in call_config.items() if k != 'assistant'}, indent=2)}")
+                redacted_config = {k: v for k, v in call_config.items() if k != "metadata"}
+                print(f"[VAPI_WORKFLOW] Call config: {json.dumps(redacted_config, indent=2)}")
+                print(f"[VAPI_WORKFLOW] Metadata keys: {list(call_config['metadata'].keys())}")
                 
                 # Make the API call
                 endpoint = f"{self.base_url}/call"

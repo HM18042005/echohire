@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
 import '../models/interview.dart';
 import '../config/ai_workflow_config.dart';
-import 'ai_interview_screen.dart';
+import '../services/ai_interview_launcher.dart';
 
 class AIGuidedInterviewScreen extends ConsumerStatefulWidget {
   const AIGuidedInterviewScreen({super.key});
@@ -27,7 +27,6 @@ class _AIGuidedInterviewScreenState
   bool _usePhone = false;
   bool _loading = false;
 
-  Map<String, dynamic>? _sessionResult;
   String? _errorMessage;
 
   final List<String> _interviewTypes = [
@@ -61,7 +60,6 @@ class _AIGuidedInterviewScreenState
     setState(() {
       _loading = true;
       _errorMessage = null;
-      _sessionResult = null;
     });
 
     try {
@@ -83,74 +81,16 @@ class _AIGuidedInterviewScreenState
             : null,
       );
 
-      setState(() {
-        _sessionResult = result;
-      });
+      final interviewId = result['interviewId']?.toString();
 
-      // Show success dialog and option to proceed
-      _showResultDialog(result);
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
-    } finally {
-      setState(() {
-        _loading = false;
-      });
-    }
-  }
+      if (interviewId == null || interviewId.isEmpty) {
+        setState(() {
+          _errorMessage =
+              'Interview was created but no interview ID was returned.';
+        });
+        return;
+      }
 
-  void _showResultDialog(Map<String, dynamic> result) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('🤖 AI Guided Interview Started'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Session ID: ${result['sessionId']}'),
-            const SizedBox(height: 8),
-            Text('Call ID: ${result['callId']}'),
-            const SizedBox(height: 8),
-            Text('Status: ${result['status']}'),
-            const SizedBox(height: 8),
-            Text('Workflow: ${result['workflowId']}'),
-            if (result['interviewId'] != null) ...[
-              const SizedBox(height: 8),
-              Text('Interview ID: ${result['interviewId']}'),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              result['message'] ??
-                  'AI guided interview session created successfully!',
-              style: const TextStyle(fontStyle: FontStyle.italic),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-          if (result['interviewId'] != null)
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _navigateToInterview(result);
-              },
-              child: const Text('View Interview'),
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _navigateToInterview(Map<String, dynamic> result) {
-    // If we have an interview ID, navigate to the AI interview screen
-    final interviewId = result['interviewId'];
-    if (interviewId != null) {
-      // Create a basic interview object for navigation
       final interview = Interview(
         id: interviewId,
         jobTitle: _jobTitleController.text.trim().isNotEmpty
@@ -162,26 +102,26 @@ class _AIGuidedInterviewScreenState
         interviewDate: DateTime.now(),
         status: InterviewStatus.inProgress,
         overallScore: null,
-        userId: '', // Will be filled by the screen
+        userId: '',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
 
-      Navigator.push(
+      if (!mounted) return;
+
+      await AIInterviewLauncher.launchFromStartData(
         context,
-        MaterialPageRoute(
-          builder: (context) => AIInterviewScreen(
-            interview: interview,
-            sessionData: {
-              'sessionId': result['sessionId'],
-              'callId': result['callId'],
-              'workflowId': result['workflowId'],
-              'assistantId': result['assistantId'],
-              'publicKey': result['publicKey'],
-            },
-          ),
-        ),
+        interview: interview,
+        startData: result,
       );
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+      });
+    } finally {
+      setState(() {
+        _loading = false;
+      });
     }
   }
 
@@ -525,90 +465,10 @@ class _AIGuidedInterviewScreenState
                   ),
                 ),
 
-              // Session Result
-              if (_sessionResult != null)
-                Card(
-                  color: Colors.green.shade50,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              color: Colors.green.shade600,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              'Session Created Successfully',
-                              style: TextStyle(
-                                color: Colors.green.shade800,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _buildResultItem(
-                          'Session ID',
-                          _sessionResult!['sessionId'],
-                        ),
-                        _buildResultItem('Call ID', _sessionResult!['callId']),
-                        _buildResultItem('Status', _sessionResult!['status']),
-                        _buildResultItem(
-                          'Workflow ID',
-                          _sessionResult!['workflowId'],
-                        ),
-                        if (_sessionResult!['interviewId'] != null)
-                          _buildResultItem(
-                            'Interview ID',
-                            _sessionResult!['interviewId'],
-                          ),
-                        if (_sessionResult!['message'] != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            _sessionResult!['message'],
-                            style: TextStyle(
-                              color: Colors.green.shade700,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-
               const SizedBox(height: 24),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildResultItem(String label, dynamic value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              '$label:',
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value?.toString() ?? 'N/A',
-              style: const TextStyle(fontFamily: 'monospace'),
-            ),
-          ),
-        ],
       ),
     );
   }

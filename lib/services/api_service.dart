@@ -343,10 +343,8 @@ class ApiService {
   /// linked to the authenticated user (userId inferred from the Firebase token).
   Future<List<Map<String, dynamic>>> getInterviews() async {
     try {
-      print('🔗 Making request to: $_baseUrl/interviews');
       final url = Uri.parse('$_baseUrl/interviews');
       final headers = await _getAuthHeaders();
-      print('📤 Request headers: ${headers.keys.join(', ')}');
 
       final response = await _client
           .get(url, headers: headers)
@@ -355,14 +353,12 @@ class ApiService {
               seconds: 60,
             ), // Increased timeout for Render cold start
             onTimeout: () {
-              print('⏰ Request timeout after 60 seconds');
               throw NetworkException(
                 'Request timeout - server may be slow to respond',
               );
             },
           );
 
-      print('📥 Response status: ${response.statusCode}');
       _handleResponse(response, 'Get interviews');
 
       final decoded = json.decode(response.body);
@@ -371,10 +367,8 @@ class ApiService {
           'Expected a list of interviews, got ${decoded.runtimeType}',
         );
       }
-      print('✅ Successfully loaded ${decoded.length} interviews');
       return decoded.cast<Map<String, dynamic>>();
     } catch (e) {
-      print('❌ Error getting interviews: $e');
       if (e is ApiException || e is NetworkException || e is ParseException) {
         rethrow;
       }
@@ -387,7 +381,6 @@ class ApiService {
   /// Returns a [Future<bool>] indicating if the API is healthy
   Future<bool> healthCheck() async {
     try {
-      print('🏥 Health check to: $_baseUrl/health');
       final url = Uri.parse('$_baseUrl/health');
 
       final response = await _client
@@ -397,21 +390,16 @@ class ApiService {
               seconds: 60,
             ), // Increased timeout for Render cold start
             onTimeout: () {
-              print('⏰ Health check timeout');
               throw NetworkException('Health check timeout');
             },
           );
 
-      print('🏥 Health check response: ${response.statusCode}');
       if (response.statusCode == 200) {
-        print('✅ Health check successful: ${response.body}');
         return true;
       } else {
-        print('❌ Health check failed with status: ${response.statusCode}');
         return false;
       }
     } catch (e) {
-      print('❌ Health check error: $e');
       return false;
     }
   }
@@ -759,7 +747,6 @@ class ApiService {
       _handleResponse(resp, 'Send Vapi callId');
       return resp.statusCode >= 200 && resp.statusCode < 300;
     } catch (e) {
-      print('❌ Failed to send Vapi callId: $e');
       return false;
     }
   }
@@ -772,7 +759,6 @@ class ApiService {
       _handleResponse(resp, 'Complete AI Interview');
       return resp.statusCode >= 200 && resp.statusCode < 300;
     } catch (e) {
-      print('❌ Failed to complete AI interview: $e');
       return false;
     }
   }
