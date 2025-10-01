@@ -1649,9 +1649,14 @@ async def create_ai_guided_interview(
                 metadata=interview_metadata,
                 phone_number=request.phone
             )
-            
+            if not vapi_call_result:
+                raise RuntimeError("Empty response from Vapi workflow call")
+
             call_id = vapi_call_result.get("callId")
             call_status = vapi_call_result.get("status", "unknown")
+
+            if not call_id:
+                raise RuntimeError("Vapi workflow call did not provide a callId")
             
             print(f"✅ Vapi workflow call started: {call_id} (status: {call_status})")
             
@@ -2001,6 +2006,12 @@ async def create_feedback(
         feedback_id = str(uuid.uuid4())
         now = _now_iso()
 
+        if feedback_data.interviewId and feedback_data.interviewId != interview_id:
+            raise HTTPException(status_code=400, detail="Payload interviewId does not match path parameter")
+
+        if db is None:
+            raise HTTPException(status_code=503, detail="Feedback storage unavailable")
+
         # Verify interview exists and belongs to user
         interview_ref = db.collection("interviews").document(interview_id)
         interview_doc = interview_ref.get()
@@ -2028,15 +2039,22 @@ async def create_feedback(
         }
 
         # Save feedback to Firebase
-        feedback_ref = db.collection("feedback").document(feedback_id)
-        feedback_ref.set(new_feedback)
+        try:
+            feedback_ref = db.collection("feedback").document(feedback_id)
+            feedback_ref.set(new_feedback)
+        except Exception as store_err:
+            print(f"Feedback persistence error for {feedback_id}: {store_err}")
+            raise HTTPException(status_code=500, detail="Failed to persist feedback")
 
         # Update interview with overall score and status
-        interview_ref.update({
-            "overallScore": feedback_data.overallScore,
-            "status": "completed",
-            "updatedAt": now
-        })
+        try:
+            interview_ref.update({
+                "overallScore": feedback_data.overallScore,
+                "status": "completed",
+                "updatedAt": now
+            })
+        except Exception as update_err:
+            print(f"Interview update warning for {interview_id}: {update_err}")
 
         return FeedbackOut(**new_feedback)
     except HTTPException:
@@ -2053,9 +2071,16 @@ async def get_feedback(
     try:
         uid = user_data["uid"]
         
+        if db is None:
+            raise HTTPException(status_code=503, detail="Feedback storage unavailable")
+
         # Get feedback for specific interview
         feedback_ref = db.collection("feedback").where("interviewId", "==", interview_id).where("userId", "==", uid)
-        feedback_docs = feedback_ref.stream()
+        try:
+            feedback_docs = feedback_ref.stream()
+        except Exception as query_err:
+            print(f"Feedback query error for {interview_id}: {query_err}")
+            raise HTTPException(status_code=500, detail="Failed to query feedback")
 
         feedback_list = list(feedback_docs)
         if not feedback_list:
@@ -2378,14 +2403,38 @@ async def get_ai_feedback(
     """Get AI-generated feedback for a completed interview"""
     try:
         uid = user_data.get("uid")
+        if not uid:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        def _fallback_analysis(reason: str) -> Dict[str, Any]:
+            return {
+                "overallScore": 70,
+                "overallImpression": f"Automated analysis unavailable: {reason}",
+                "keyInsights": [],
+                "confidenceScore": 0.0,
+                "speechAnalysis": {},
+                "transcriptAnalysis": "",
+                "emotionalAnalysis": {},
+                "technicalAssessment": {},
+                "communicationAssessment": {},
+                "problemSolvingAssessment": {},
+                "roleSpecificAssessment": {},
+                "interviewQuality": {},
+                "recommendedAreas": [],
+                "nextSteps": "Retry analysis once services recover.",
+            }
 
         if db is None:
             transcript_text = "Mock interview transcript for analysis"
-            analysis = await gemini_service.analyze_interview_transcript(transcript_text, {
-                "jobTitle": "Interview",
-                "type": "technical",
-                "level": "mid",
-            })
+            try:
+                analysis = await gemini_service.analyze_interview_transcript(transcript_text, {
+                    "jobTitle": "Interview",
+                    "type": "technical",
+                    "level": "mid",
+                })
+            except Exception as analysis_err:
+                print(f"Gemini offline analysis warning: {analysis_err}")
+                analysis = _fallback_analysis("analysis service unavailable")
             _, response_payload = _build_ai_feedback_payload(
                 interview_id,
                 uid,
@@ -2395,8 +2444,12 @@ async def get_ai_feedback(
             )
             return AIFeedbackResponse(**response_payload)
 
-        interview_ref = db.collection("interviews").document(interview_id)
-        interview_doc = interview_ref.get()
+        try:
+            interview_ref = db.collection("interviews").document(interview_id)
+            interview_doc = interview_ref.get()
+        except Exception as fetch_err:
+            print(f"Interview fetch error for AI feedback {interview_id}: {fetch_err}")
+            raise HTTPException(status_code=500, detail="Failed to load interview")
         if not interview_doc.exists:
             raise HTTPException(status_code=404, detail="Interview not found")
 
@@ -2407,15 +2460,23 @@ async def get_ai_feedback(
         if interview_data.get("status") != "completed":
             raise HTTPException(status_code=400, detail="Interview not completed yet")
 
-        feedback_query = db.collection("feedback").where("interviewId", "==", interview_id).where("userId", "==", uid)
-        feedback_docs = [doc.to_dict() for doc in feedback_query.stream()]
+        try:
+            feedback_query = db.collection("feedback").where("interviewId", "==", interview_id).where("userId", "==", uid)
+            feedback_docs = [doc.to_dict() for doc in feedback_query.stream()]
+        except Exception as query_err:
+            print(f"AI feedback history query error for {interview_id}: {query_err}")
+            feedback_docs = []
         existing_ai = _select_latest_ai_feedback(feedback_docs)
         if existing_ai:
             return AIFeedbackResponse(**_feedback_doc_to_response(existing_ai))
 
         transcript_text = ""
-        transcript_snapshot = db.collection("transcripts").document(interview_id).get()
-        if transcript_snapshot.exists:
+        try:
+            transcript_snapshot = db.collection("transcripts").document(interview_id).get()
+        except Exception as transcript_fetch_err:
+            print(f"Transcript fetch error for {interview_id}: {transcript_fetch_err}")
+            transcript_snapshot = None
+        if transcript_snapshot and transcript_snapshot.exists:
             transcript_text = transcript_snapshot.to_dict().get("transcript", "") or ""
 
         vapi_call_id = interview_data.get("vapiCallId")
@@ -2437,7 +2498,11 @@ async def get_ai_feedback(
                 )
             transcript_text = "Transcript not available. Proceeding with limited analysis."
 
-        analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
+        try:
+            analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
+        except Exception as analysis_err:
+            print(f"Gemini analysis error for {interview_id}: {analysis_err}")
+            analysis = _fallback_analysis("analysis service unavailable")
         feedback_doc, response_payload = _build_ai_feedback_payload(
             interview_id,
             uid,
