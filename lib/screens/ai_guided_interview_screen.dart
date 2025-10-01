@@ -1,21 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
 import '../models/interview.dart';
 import '../config/ai_workflow_config.dart';
 import '../services/ai_interview_launcher.dart';
 
-class AIGuidedInterviewScreen extends StatefulWidget {
+class AIGuidedInterviewScreen extends ConsumerStatefulWidget {
   const AIGuidedInterviewScreen({super.key});
 
   @override
-  State<AIGuidedInterviewScreen> createState() =>
+  ConsumerState<AIGuidedInterviewScreen> createState() =>
       _AIGuidedInterviewScreenState();
 }
 
-class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
+class _AIGuidedInterviewScreenState
+    extends ConsumerState<AIGuidedInterviewScreen> {
   final _formKey = GlobalKey<FormState>();
+  // Universal workflow ID is now handled by AIWorkflowConfig
+  final _candidateNameController = TextEditingController();
+  final _jobTitleController = TextEditingController();
   final _companyNameController = TextEditingController();
+  final _phoneController = TextEditingController();
 
+  String _interviewType = 'technical';
+  String _experienceLevel = 'mid';
+  bool _usePhone = false;
   bool _loading = false;
 
   String? _errorMessage;
@@ -38,7 +47,10 @@ class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
 
   @override
   void dispose() {
+    _candidateNameController.dispose();
+    _jobTitleController.dispose();
     _companyNameController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -51,8 +63,12 @@ class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
     });
 
     try {
-      final apiService = ApiService();
-      final result = await apiService.createAIGuidedInterview(
+      // Validate required company name
+      if (_companyNameController.text.trim().isEmpty) {
+        throw Exception('Company name is required');
+      }
+
+      final result = await ApiServiceSingleton.instance.createAIGuidedInterview(
         companyName: _companyNameController.text.trim(),
       );
 
@@ -105,86 +121,337 @@ class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('🤖 AI Guided Interview'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: Colors.blue.shade600,
+        foregroundColor: Colors.white,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
+      body: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'AI Guided Interview',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+              // Header Card
+              Card(
+                color: Colors.blue.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.auto_awesome,
+                            color: Colors.blue.shade600,
+                            size: 28,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'AI Guided Interview Setup',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
+                                        color: Colors.blue.shade800,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Let AI guide you through a personalized interview experience',
+                                  style: TextStyle(color: Colors.blue.shade600),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Workflow Configuration (Auto-configured)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.settings_applications,
+                      color: Colors.blue.shade700,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'AI Workflow Configured',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue.shade700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Using universal workflow: ${AIWorkflowConfig.getDisplayWorkflowId()}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.check_circle, color: Colors.green.shade600),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Candidate Information
+              Text(
+                'Candidate Information (Optional)',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Start with just your company name. Our AI assistant will ask about job role, experience level, and interview type during the conversation.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
+
+              TextFormField(
+                controller: _candidateNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Candidate Name',
+                  hintText: 'Alex Johnson',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
+                ),
               ),
-              const SizedBox(height: 32),
+
+              const SizedBox(height: 16),
+
+              TextFormField(
+                controller: _jobTitleController,
+                decoration: const InputDecoration(
+                  labelText: 'Target Job Title',
+                  hintText: 'Full Stack Developer',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.work),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
               TextFormField(
                 controller: _companyNameController,
                 decoration: const InputDecoration(
-                  labelText: 'Company Name *',
-                  hintText: 'e.g., InnovateTech Solutions',
-                  prefixIcon: Icon(Icons.business),
+                  labelText: 'Company Name',
+                  hintText: 'TechCorp Inc',
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.business),
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter the company name';
-                  }
-                  return null;
-                },
-                textCapitalization: TextCapitalization.words,
               ),
-              const SizedBox(height: 32),
-              ElevatedButton.icon(
-                onPressed: _loading ? null : _startAIGuidedInterview,
-                icon: _loading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.rocket_launch),
-                label: Text(
-                  _loading ? 'Setting up...' : 'Start AI Guided Interview',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+
+              const SizedBox(height: 24),
+
+              // Interview Settings
+              Text(
+                'Interview Settings',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+
+              // Interview Type Dropdown
+              DropdownButtonFormField<String>(
+                value: _interviewType,
+                decoration: const InputDecoration(
+                  labelText: 'Interview Type',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.quiz),
+                ),
+                items: _interviewTypes.map((type) {
+                  return DropdownMenuItem(
+                    value: type,
+                    child: Text(type.replaceAll('_', ' ').toUpperCase()),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _interviewType = value!;
+                  });
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // Experience Level Dropdown
+              DropdownButtonFormField<String>(
+                value: _experienceLevel,
+                decoration: const InputDecoration(
+                  labelText: 'Experience Level',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.trending_up),
+                ),
+                items: _experienceLevels.map((level) {
+                  return DropdownMenuItem(
+                    value: level,
+                    child: Text(level.toUpperCase()),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _experienceLevel = value!;
+                  });
+                },
+              ),
+
+              const SizedBox(height: 24),
+
+              // Phone Call Option
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.phone, color: Colors.green.shade600),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Phone Call Option',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        title: const Text('Use Phone Call'),
+                        subtitle: const Text(
+                          'Enable phone-based interview instead of web',
+                        ),
+                        value: _usePhone,
+                        onChanged: (value) {
+                          setState(() {
+                            _usePhone = value;
+                          });
+                        },
+                      ),
+                      if (_usePhone) ...[
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _phoneController,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone Number',
+                            hintText: '+1234567890',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.phone),
+                          ),
+                          validator: _usePhone
+                              ? (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Phone number is required when phone call is enabled';
+                                  }
+                                  return null;
+                                }
+                              : null,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
               ),
-              const SizedBox(height: 24),
-              if (_statusMessage != null)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: _statusMessage!.startsWith('Error')
-                        ? Colors.red.shade50
-                        : Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _statusMessage!.startsWith('Error')
-                          ? Colors.red.shade200
-                          : Colors.green.shade200,
+
+              const SizedBox(height: 32),
+
+              // Start Interview Button
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _startAIGuidedInterview,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade600,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: Text(
-                    _statusMessage!,
-                    style: TextStyle(
-                      color: _statusMessage!.startsWith('Error')
-                          ? Colors.red.shade700
-                          : Colors.green.shade700,
-                      fontSize: 14,
+                  child: _loading
+                      ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            Text('Creating AI Guided Interview...'),
+                          ],
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.rocket_launch),
+                            SizedBox(width: 8),
+                            Text('Start AI Guided Interview'),
+                          ],
+                        ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Error Message
+              if (_errorMessage != null)
+                Card(
+                  color: Colors.red.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error, color: Colors.red.shade600),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Error',
+                                style: TextStyle(
+                                  color: Colors.red.shade800,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _errorMessage!,
+                                style: TextStyle(color: Colors.red.shade700),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
