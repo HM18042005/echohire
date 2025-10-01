@@ -2,7 +2,6 @@
 # Updated: 2025-09-24 19:07 - Firebase service account key regenerated for security
 # Deployment timestamp: 2025-09-24 19:07:53
 from datetime import datetime
-from typing import Optional, List, Dict, Any
 from typing import Optional, List, Dict, Any, Tuple
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
@@ -14,12 +13,36 @@ import os
 import uuid
 import asyncio
 import json
+import logging
 from dotenv import load_dotenv
 import hmac
 import hashlib
 
 # Load environment variables from .env file
 load_dotenv()
+
+LOG_LEVEL_NAME = os.getenv("ECHOHIRE_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL_NAME, logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("echohire.backend")
+
+
+def _secret_suffix(value: Optional[str], keep: int = 6) -> str:
+    if not value:
+        return "<unset>"
+    return value[-keep:]
+
+
+def _mask_email(email: Optional[str]) -> str:
+    if not email:
+        return "<unset>"
+    local, _, domain = email.partition("@")
+    if not domain:
+        return f"***@<invalid>"
+    masked_local = f"{local[:2]}***" if len(local) > 2 else "***"
+    return f"{masked_local}@{domain}"
 
 # AI Integration imports (optional)
 # Do not hard-require google.generativeai here; ai_services handles fallbacks.
@@ -33,7 +56,7 @@ async def stop_vapi_call(call_id: str) -> bool:
     try:
         return await vapi_service.stop_call(call_id)
     except Exception as e:
-        print(f"stop_vapi_call error: {e}")
+        logger.exception("stop_vapi_call error for call_id=%s", call_id)
         return False
 
 # Initialize Firebase Admin SDK
@@ -61,24 +84,30 @@ try:
             firebase_admin.initialize_app(cred)
         key_id = service_account_info.get('private_key_id', '<unknown>')
         email = service_account_info.get('client_email', '<unknown>')
-        print(f"✅ Firebase initialized with env credentials [{source_hint}] (key_id={key_id}, client_email={email})")
+        logger.info(
+            "Firebase initialized with env credentials [%s] (key_id_suffix=%s, client_email=%s)",
+            source_hint,
+            _secret_suffix(key_id),
+            _mask_email(email),
+        )
         db = firestore.client()
     # 2) Allow local file ONLY if explicitly enabled
     elif os.getenv("ALLOW_FIREBASE_FILE", "0") == "1" and os.path.exists("firebase-service-account.json"):
         if not firebase_admin._apps:
             cred = credentials.Certificate("firebase-service-account.json")
             firebase_admin.initialize_app(cred)
-        print("✅ Firebase initialized with service account file (ALLOW_FIREBASE_FILE=1)")
+        logger.info("Firebase initialized with service account file (ALLOW_FIREBASE_FILE=1)")
         db = firestore.client()
     else:
-        print("⚠️ No Firebase env credentials set and local file not allowed. Trying Application Default Credentials...")
+        logger.warning(
+            "No Firebase env credentials set and local file not allowed. Attempting Application Default Credentials"
+        )
         if not firebase_admin._apps:
             firebase_admin.initialize_app()
-        print("✅ Firebase initialized with Application Default Credentials")
+        logger.info("Firebase initialized with Application Default Credentials")
         db = firestore.client()
 except Exception as e:
-    print(f"❌ Firebase initialization failed: {e}")
-    print("🔄 Running in offline mode with mock data...")
+    logger.exception("Firebase initialization failed; running in offline mode")
     db = None
 
 # Initialize Google Gemini AI (best-effort; safe if package/env missing)
@@ -87,11 +116,11 @@ try:
     api_key = os.getenv("GOOGLE_AI_API_KEY", "")
     if api_key:
         genai.configure(api_key=api_key)
-        print("✅ Google Generative AI SDK configured")
+        logger.info("Google Generative AI SDK configured")
     else:
-        print("⚠️ GOOGLE_AI_API_KEY not set; skipping Generative AI SDK configuration")
+        logger.warning("GOOGLE_AI_API_KEY not set; skipping Generative AI SDK configuration")
 except Exception as e:
-    print(f"⚠️ google.generativeai not available or failed to configure: {e}")
+    logger.warning("google.generativeai not available or failed to configure: %s", e)
 
 app = FastAPI(title="EchoHire API", version="1.0.0")
 
@@ -1619,45 +1648,56 @@ async def create_ai_guided_interview(
     This starts a conversational AI that will gather interview preferences,
     create questions, and conduct the interview.
     """
+    uid = user_data["uid"]
+    session_id = str(uuid.uuid4())
+    interview_id = str(uuid.uuid4())
+    now = _now_iso()
+
+    logger.info(
+        "Starting AI guided interview | uid=%s session_id=%s workflow=%s company=%s job=%s",
+        uid,
+        session_id,
+        UNIVERSAL_WORKFLOW_ID,
+        request.companyName,
+        request.jobTitle,
+    )
+
+    # Prepare interview metadata
+    interview_metadata = {
+        "userId": uid,
+        "candidateName": request.candidateName or "Candidate",
+        "jobTitle": request.jobTitle,
+        "companyName": request.companyName,
+        "interviewType": request.interviewType,
+        "experienceLevel": request.experienceLevel,
+        "sessionId": session_id,
+        "workflowId": UNIVERSAL_WORKFLOW_ID,
+        "createdAt": now
+    }
+
     try:
-        uid = user_data["uid"]
-        session_id = str(uuid.uuid4())
-        now = _now_iso()
-        
-        print(f"🤖 Starting AI guided interview with universal workflow ID: {UNIVERSAL_WORKFLOW_ID}")
-        
-        # Prepare interview metadata
-        interview_metadata = {
-            "userId": uid,
-            "candidateName": request.candidateName or "Candidate",
-            "jobTitle": request.jobTitle,
-            "companyName": request.companyName,
-            "interviewType": request.interviewType,
-            "experienceLevel": request.experienceLevel,
-            "sessionId": session_id,
-            "workflowId": UNIVERSAL_WORKFLOW_ID,
-            "createdAt": now
-        }
-        
-        # Start Vapi call with workflow
         try:
             vapi_call_result = await vapi_service.start_workflow_call(
                 workflow_id=UNIVERSAL_WORKFLOW_ID,
                 metadata=interview_metadata,
                 phone_number=request.phone
             )
-            
+
             call_id = vapi_call_result.get("callId")
             call_status = vapi_call_result.get("status", "unknown")
-            
-            print(f"✅ Vapi workflow call started: {call_id} (status: {call_status})")
-            
+
+            logger.info(
+                "Vapi workflow call started | session_id=%s call_id=%s status=%s",
+                session_id,
+                call_id,
+                call_status,
+            )
+
             # Create a preliminary interview record
-            interview_id = str(uuid.uuid4())
             preliminary_interview = {
                 "id": interview_id,
                 "jobTitle": request.jobTitle or "TBD - AI Guided",
-                "companyName": request.companyName or "TBD - AI Guided", 
+                "companyName": request.companyName or "TBD - AI Guided",
                 "interviewDate": now,
                 "status": "ai_guided_setup",
                 "overallScore": None,
@@ -1669,13 +1709,15 @@ async def create_ai_guided_interview(
                 "createdAt": now,
                 "updatedAt": now
             }
-            
+
             # Save preliminary interview to Firebase
             if db is not None:
                 interview_ref = db.collection("interviews").document(interview_id)
                 interview_ref.set(preliminary_interview)
-                print(f"📝 Saved preliminary AI guided interview: {interview_id}")
-            
+                logger.info(
+                    "Saved preliminary AI guided interview | interview_id=%s uid=%s", interview_id, uid
+                )
+
             # Save session mapping for workflow tracking
             if db is not None:
                 session_ref = db.collection("ai_guided_sessions").document(session_id)
@@ -1690,7 +1732,7 @@ async def create_ai_guided_interview(
                     "createdAt": now,
                     "updatedAt": now
                 })
-            
+
             return AIGuidedInterviewResponse(
                 sessionId=session_id,
                 callId=call_id,
@@ -1701,12 +1743,53 @@ async def create_ai_guided_interview(
                 interviewId=interview_id,
                 message=f"AI guided interview session started. Call ID: {call_id}"
             )
-            
+
         except Exception as vapi_error:
-            print(f"❌ Vapi workflow call failed: {vapi_error}")
+            logger.exception(
+                "Vapi workflow call failed | session_id=%s uid=%s", session_id, uid
+            )
             # Return fallback response for mock/development mode
             fallback_call_id = f"ai_guided_mock_{session_id[:8]}"
-            
+
+            metadata_with_error = dict(interview_metadata)
+            metadata_with_error["vapiStartError"] = type(vapi_error).__name__
+
+            if db is not None:
+                fallback_interview = {
+                    "id": interview_id,
+                    "jobTitle": request.jobTitle or "TBD - AI Guided",
+                    "companyName": request.companyName or "TBD - AI Guided",
+                    "interviewDate": now,
+                    "status": "ai_guided_error",
+                    "overallScore": None,
+                    "userId": uid,
+                    "vapiCallId": fallback_call_id,
+                    "workflowId": UNIVERSAL_WORKFLOW_ID,
+                    "aiGuided": True,
+                    "metadata": metadata_with_error,
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+
+                interview_ref = db.collection("interviews").document(interview_id)
+                interview_ref.set(fallback_interview)
+                logger.info(
+                    "Stored fallback AI guided interview | interview_id=%s uid=%s", interview_id, uid
+                )
+
+                session_ref = db.collection("ai_guided_sessions").document(session_id)
+                session_ref.set({
+                    "sessionId": session_id,
+                    "interviewId": interview_id,
+                    "userId": uid,
+                    "workflowId": UNIVERSAL_WORKFLOW_ID,
+                    "vapiCallId": fallback_call_id,
+                    "status": "mock_ai_guided",
+                    "metadata": metadata_with_error,
+                    "createdAt": now,
+                    "updatedAt": now,
+                })
+
             return AIGuidedInterviewResponse(
                 sessionId=session_id,
                 callId=fallback_call_id,
@@ -1714,14 +1797,16 @@ async def create_ai_guided_interview(
                 assistantId="mock_assistant",
                 publicKey="mock_public_key",
                 workflowId=UNIVERSAL_WORKFLOW_ID,
-                interviewId=None,
-                message=f"AI guided interview in mock mode (Vapi not configured). Session: {session_id}"
+                interviewId=interview_id,
+                message="AI guided interview created in mock mode; Vapi start failed",
             )
-            
+
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"AI guided interview creation error: {e}")
+    except Exception:
+        logger.exception(
+            "AI guided interview creation error | session_id=%s uid=%s", session_id, uid
+        )
         raise HTTPException(status_code=500, detail="Failed to create AI guided interview")
 
 @app.get("/interviews", response_model=List[InterviewOut])
@@ -2640,5 +2725,5 @@ if __name__ == "__main__":
     import os
     # Use PORT environment variable for Render deployment, fallback to 8000 for local dev
     port = int(os.getenv("PORT", 8000))
-    print(f"🚀 Starting server on port {port}")
+    logger.info("Starting server on port %s", port)
     uvicorn.run(app, host="0.0.0.0", port=port)
