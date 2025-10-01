@@ -63,22 +63,13 @@ class _AIGuidedInterviewScreenState
     });
 
     try {
+      // Validate required company name
+      if (_companyNameController.text.trim().isEmpty) {
+        throw Exception('Company name is required');
+      }
+
       final result = await ApiServiceSingleton.instance.createAIGuidedInterview(
-        // workflowId is now universal and handled automatically by backend
-        candidateName: _candidateNameController.text.trim().isNotEmpty
-            ? _candidateNameController.text.trim()
-            : null,
-        jobTitle: _jobTitleController.text.trim().isNotEmpty
-            ? _jobTitleController.text.trim()
-            : null,
-        companyName: _companyNameController.text.trim().isNotEmpty
-            ? _companyNameController.text.trim()
-            : null,
-        interviewType: _interviewType,
-        experienceLevel: _experienceLevel,
-        phone: _usePhone && _phoneController.text.trim().isNotEmpty
-            ? _phoneController.text.trim()
-            : null,
+        companyName: _companyNameController.text.trim(),
       );
 
       final interviewId = result['interviewId']?.toString();

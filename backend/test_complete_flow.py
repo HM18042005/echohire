@@ -16,13 +16,8 @@ async def test_complete_ai_guided_flow():
     # Step 1: Simulate Frontend Request
     print("📱 Step 1: Frontend sends AI guided interview request")
     frontend_request = {
-        # workflowId is now universal and handled by backend automatically
-        "candidateName": "Sarah Chen",
-        "jobTitle": "Senior Frontend Developer",
-        "companyName": "InnovateTech Solutions",
-        "interviewType": "technical",
-        "experienceLevel": "senior",
-        "phone": None  # Web call
+        # Only company name is required - AI assistant will ask for everything else
+        "companyName": "InnovateTech Solutions"
     }
     
     print(f"   Request: {json.dumps(frontend_request, indent=2)}")
@@ -121,7 +116,7 @@ async def test_complete_ai_guided_flow():
         "interview_completed": True,
         "session_id": session_id,
         "interview_id": interview_id,
-        "candidate_name": frontend_request["candidateName"],
+        "candidate_name": "Sarah Chen",  # AI collected this during conversation
         "overall_score": ai_feedback["overallScore"],
         "recommendation": ai_feedback["hiringRecommendation"],
         "transcript_available": True,
