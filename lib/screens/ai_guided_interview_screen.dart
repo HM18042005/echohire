@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../models/interview.dart';
+import '../config/ai_workflow_config.dart';
+import '../services/ai_interview_launcher.dart';
 
 class AIGuidedInterviewScreen extends StatefulWidget {
   const AIGuidedInterviewScreen({super.key});
@@ -14,7 +17,24 @@ class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
   final _companyNameController = TextEditingController();
 
   bool _loading = false;
-  String? _statusMessage;
+
+  String? _errorMessage;
+
+  final List<String> _interviewTypes = [
+    'technical',
+    'behavioral',
+    'system_design',
+    'cultural_fit',
+    'mixed',
+  ];
+
+  final List<String> _experienceLevels = [
+    'junior',
+    'mid',
+    'senior',
+    'lead',
+    'principal',
+  ];
 
   @override
   void dispose() {
@@ -27,7 +47,7 @@ class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
 
     setState(() {
       _loading = true;
-      _statusMessage = 'Setting up your AI guided interview...';
+      _errorMessage = null;
     });
 
     try {
@@ -36,50 +56,48 @@ class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
         companyName: _companyNameController.text.trim(),
       );
 
-      setState(() {
-        _statusMessage = 'Interview session created successfully!';
-        _loading = false;
-      });
+      final interviewId = result['interviewId']?.toString();
 
-      _showSuccessDialog(result);
+      if (interviewId == null || interviewId.isEmpty) {
+        setState(() {
+          _errorMessage =
+              'Interview was created but no interview ID was returned.';
+        });
+        return;
+      }
+
+      final interview = Interview(
+        id: interviewId,
+        jobTitle: _jobTitleController.text.trim().isNotEmpty
+            ? _jobTitleController.text.trim()
+            : 'AI Guided Interview',
+        companyName: _companyNameController.text.trim().isNotEmpty
+            ? _companyNameController.text.trim()
+            : 'AI Guided',
+        interviewDate: DateTime.now(),
+        status: InterviewStatus.inProgress,
+        overallScore: null,
+        userId: '',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      if (!mounted) return;
+
+      await AIInterviewLauncher.launchFromStartData(
+        context,
+        interview: interview,
+        startData: result,
+      );
     } catch (e) {
       setState(() {
-        _statusMessage = 'Error: ${e.toString()}';
+        _errorMessage = e.toString();
+      });
+    } finally {
+      setState(() {
         _loading = false;
       });
     }
-  }
-
-  void _showSuccessDialog(Map<String, dynamic> result) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('🤖 AI Interview Session Ready'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Your AI guided interview session has been created successfully!',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            Text('Session ID: ${result['sessionId'] ?? 'N/A'}'),
-            Text('Interview ID: ${result['interviewId'] ?? 'N/A'}'),
-            Text('Status: ${result['status'] ?? 'Created'}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.of(context).pop(); // Go back to home
-            },
-            child: const Text('Got it!'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -170,6 +188,8 @@ class _AIGuidedInterviewScreenState extends State<AIGuidedInterviewScreen> {
                     ),
                   ),
                 ),
+
+              const SizedBox(height: 24),
             ],
           ),
         ),

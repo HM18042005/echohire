@@ -5,6 +5,9 @@ from typing import Dict, Any, List, Optional
 # Universal Vapi Workflow Configuration
 UNIVERSAL_WORKFLOW_ID = "7894c32f-8b29-4e71-90f3-a19047832a21"
 
+# Control whether the backend should attempt to kick off web-based workflow calls
+AUTO_INITIATE_WEB_WORKFLOW = os.getenv("AUTO_INITIATE_WEB_WORKFLOW", "1") == "1"
+
 # Make google.generativeai optional so the backend doesn't crash if the package isn't installed
 try:
     import google.generativeai as genai  # type: ignore
@@ -24,6 +27,7 @@ class GeminiAnalysisService:
     def __init__(self):
         # Default state
         self.model = None
+        self.model_name: Optional[str] = None
         self.safety_settings = []
 
         # Check if API key and package are configured
@@ -42,7 +46,26 @@ class GeminiAnalysisService:
         # Configure SDK and initialize model
         try:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            preferred_models = [
+                "gemini-1.5-pro-latest",
+                "gemini-1.5-pro",
+                "gemini-1.5-flash",
+                "gemini-1.0-pro",
+            ]
+            for model_name in preferred_models:
+                try:
+                    self.model = genai.GenerativeModel(model_name)
+                    self.model_name = model_name
+                    break
+                except Exception as model_error:
+                    print(f"WARNING: Gemini model {model_name} unavailable ({model_error}). Trying fallback...")
+                    continue
+
+            if not self.model:
+                print("WARNING: No compatible Gemini model available. AI analysis will use fallback.")
+                self.is_configured = False
+                return
+
             self.safety_settings = [
                 {
                     "category": "HARM_CATEGORY_HARASSMENT",
@@ -53,6 +76,7 @@ class GeminiAnalysisService:
                     "threshold": "BLOCK_MEDIUM_AND_ABOVE"
                 }
             ]
+            print(f"[GEMINI_INIT] Using model: {self.model_name}")
             self.is_configured = True
         except Exception as e:
             print(f"Error initializing Gemini model: {e}")
@@ -200,7 +224,7 @@ class GeminiAnalysisService:
             
         except Exception as e:
             print(f"Gemini analysis error: {e}")
-            return self._emergency_fallback_analysis()
+            return self._emergency_fallback_analysis(role, interview_type)
     
     def _generate_enhanced_analysis(self, analysis_data: Dict[str, Any]) -> str:
         """Generate a comprehensive analysis summary with enhanced details"""
@@ -317,11 +341,11 @@ class GeminiAnalysisService:
             "recommendation": "Further review recommended based on AI analysis"
         }
     
-    def _emergency_fallback_analysis(self) -> Dict[str, Any]:
+    def _emergency_fallback_analysis(self, role: str, interview_type: str) -> Dict[str, Any]:
         """Emergency fallback when all analysis fails"""
         return {
             "overallScore": 70,
-            "overallImpression": "Interview completed - manual review recommended",
+            "overallImpression": f"Interview completed - manual review recommended for {role} {interview_type} interview",
             "keyInsights": [
                 "Technical interview conducted",
                 "Response quality evaluated", 
@@ -331,7 +355,43 @@ class GeminiAnalysisService:
             "transcriptAnalysis": "AI analysis temporarily unavailable - manual review recommended",
             "speechAnalysis": {"pace": "moderate", "clarity": "adequate"},
             "emotionalAnalysis": {"confidence": 0.6, "enthusiasm": 0.5, "stress": 0.4},
-            "recommendation": "Manual review required - AI analysis unavailable"
+            "recommendation": "Manual review required - AI analysis unavailable",
+            "technicalAssessment": {
+                "score": 68,
+                "strengths": ["Baseline technical competency observed"],
+                "weaknesses": ["Detailed AI insights unavailable"],
+                "assessment": "Automated analysis unavailable. Please review candidate responses manually.",
+            },
+            "communicationAssessment": {
+                "score": 70,
+                "clarity": 70,
+                "articulation": 68,
+                "confidence": 65,
+                "examples": "Communication metrics unavailable due to AI fallback.",
+            },
+            "problemSolvingAssessment": {
+                "score": 69,
+                "approach": "Problem-solving indicators require manual verification.",
+                "creativity": 65,
+                "logicalThinking": 68,
+                "methodology": "Review transcript to assess structured thinking and methodology.",
+            },
+            "roleSpecificAssessment": {
+                "roleAlignment": 70,
+                "experienceLevel": "mid",
+                "readiness": "Manual evaluation required to confirm readiness.",
+                "growthPotential": "Manual evaluation required to gauge growth potential.",
+            },
+            "interviewQuality": {
+                "responseDepth": 68,
+                "questionHandling": 70,
+                "engagement": 72,
+            },
+            "recommendedAreas": [
+                "Review candidate's technical depth manually",
+                "Assess communication nuances via transcript",
+            ],
+            "nextSteps": "Conduct manual review or rerun AI analysis when available",
         }
 
 class VapiInterviewService:
@@ -375,6 +435,25 @@ class VapiInterviewService:
         else:
             print(f"[VAPI_INIT] API key configured successfully (length: {len(self.vapi_api_key)})")
             self.is_configured = True
+
+        self.auto_init_web_workflow = AUTO_INITIATE_WEB_WORKFLOW
+        print(f"[VAPI_INIT] Auto-init web workflow: {self.auto_init_web_workflow}")
+
+    def _client_init_response(self, workflow_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Return standard response instructing clients to initialize web call themselves."""
+        return {
+            "callId": "web_call_client_side",
+            "status": "ready_for_client_init",
+            "message": "Use this configuration to initialize web call from client-side",
+            "webCallUrl": None,
+            "assistantId": self.vapi_assistant_id,
+            "publicKey": os.getenv("VAPI_PUBLIC_KEY"),
+            "workflowId": workflow_id,
+            "metadata": {
+                **(metadata or {}),
+                "initMode": "client",
+            },
+        }
     
     def validate_configuration(self) -> Dict[str, Any]:
         """Validate Vapi configuration and return detailed status"""
@@ -814,57 +893,52 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                 }
                 
                 # Prepare workflow call configuration
-                call_config = {
-                    "assistant": {
-                        "workflowId": workflow_id,
-                        "model": {
-                            "provider": "openai",
-                            "model": "gpt-4",
-                            "messages": [{
-                                "role": "system",
-                                "content": f"""You are an AI interview assistant conducting a guided interview setup. 
-                                Your goal is to collect interview preferences and create a personalized interview experience.
-                                
-                                Workflow ID: {workflow_id}
-                                
-                                Follow these steps:
-                                1. Greet the candidate warmly
-                                2. Ask about their target role/position
-                                3. Determine interview type (technical, behavioral, etc.)
-                                4. Assess their experience level
-                                5. Generate appropriate questions
-                                6. Conduct the interview
-                                7. Provide feedback and summary
-                                
-                                Be professional, encouraging, and thorough."""
-                            }]
-                        },
-                        "voice": {
-                            "provider": "playht",
-                            "voiceId": "jennifer"
-                        }
-                    },
+                call_config: Dict[str, Any] = {
+                    "type": "workflow",
+                    "workflowId": workflow_id,
                     "metadata": {
                         **metadata,
                         "workflowType": "ai_guided_interview",
                         "workflowId": workflow_id
                     }
                 }
+
+                if self.vapi_assistant_id:
+                    call_config["assistantId"] = self.vapi_assistant_id
+                else:
+                    call_config["assistant"] = {
+                        "model": {
+                            "provider": "openai",
+                            "model": "gpt-4",
+                        },
+                        "voice": {
+                            "provider": "playht",
+                            "voiceId": "jennifer"
+                        }
+                    }
                 
+                # Determine call mode
+                web_call_mode = not bool(phone_number)
+
                 # Add phone number if provided
                 if phone_number:
                     call_config["phoneNumberId"] = phone_number
                     print(f"[VAPI_WORKFLOW] Phone call mode with number: {phone_number}")
                 else:
-                    print(f"[VAPI_WORKFLOW] Web call mode - client-side initialization required")
+                    if not self.auto_init_web_workflow:
+                        print(f"[VAPI_WORKFLOW] Auto-init disabled; returning client-side init payload")
+                        return self._client_init_response(workflow_id, metadata)
+                    print(f"[VAPI_WORKFLOW] Web call mode - attempting server-side initiation")
                 
-                print(f"[VAPI_WORKFLOW] Call config: {json.dumps({k: v for k, v in call_config.items() if k != 'assistant'}, indent=2)}")
+                redacted_config = {k: v for k, v in call_config.items() if k != "metadata"}
+                print(f"[VAPI_WORKFLOW] Call config: {json.dumps(redacted_config, indent=2)}")
+                print(f"[VAPI_WORKFLOW] Metadata keys: {list(call_config['metadata'].keys())}")
                 
                 # Make the API call
                 endpoint = f"{self.base_url}/call"
                 response = await client.post(endpoint, json=call_config, headers=headers)
                 
-                if response.status_code == 201:
+                if response.status_code in (200, 201):
                     call_data = response.json() 
                     call_id = call_data.get("id")
                     
@@ -872,30 +946,51 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                     
                     return {
                         "callId": call_id,
-                        "status": "created",
+                        "status": call_data.get("status", "created"),
                         "workflowId": workflow_id,
                         "assistantId": call_data.get("assistantId"),
                         "publicKey": os.getenv("VAPI_PUBLIC_KEY"),
-                        "webUrl": call_data.get("webCallUrl"),
+                        "webUrl": call_data.get("webCallUrl") or call_data.get("clientUrl"),
                         "phoneNumber": phone_number,
                         "metadata": metadata
                     }
-                    
-                elif response.status_code == 400:
-                    error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
-                    print(f"❌ Vapi workflow call failed - Bad Request: {error_data}")
-                    return self._fallback_workflow_response(workflow_id, metadata, f"Bad request: {error_data}")
-                    
-                elif response.status_code == 401:
-                    print(f"❌ Vapi workflow call failed - Authentication error")
-                    return self._fallback_workflow_response(workflow_id, metadata, "Authentication failed")
-                    
+                error_body: Optional[Any] = None
+                if response.headers.get("content-type", "").startswith("application/json"):
+                    try:
+                        error_body = response.json()
+                    except Exception:
+                        error_body = response.text
                 else:
-                    print(f"❌ Vapi workflow call failed - HTTP {response.status_code}: {response.text}")
-                    return self._fallback_workflow_response(workflow_id, metadata, f"HTTP {response.status_code}")
+                    error_body = response.text
+
+                print(f"❌ Vapi workflow call failed - HTTP {response.status_code}: {error_body}")
+
+                if web_call_mode:
+                    print("[VAPI_WORKFLOW] Falling back to client-side init for web call")
+                    fallback_meta = {
+                        **metadata,
+                        "workflowError": error_body,
+                        "workflowStatus": response.status_code,
+                    }
+                    return self._client_init_response(workflow_id, fallback_meta)
+
+                if response.status_code == 400:
+                    return self._fallback_workflow_response(workflow_id, metadata, f"Bad request: {error_body}")
+                if response.status_code == 401:
+                    return self._fallback_workflow_response(workflow_id, metadata, "Authentication failed")
+
+                return self._fallback_workflow_response(workflow_id, metadata, f"HTTP {response.status_code}")
                     
         except Exception as e:
             print(f"❌ Workflow call error: {e}")
+            if not phone_number and self.auto_init_web_workflow:
+                print("[VAPI_WORKFLOW] Exception during web call initiation, providing client-side init payload")
+                fallback_meta = {
+                    **metadata,
+                    "workflowError": str(e),
+                    "workflowStatus": "exception",
+                }
+                return self._client_init_response(workflow_id, fallback_meta)
             return self._fallback_workflow_response(workflow_id, metadata, str(e))
     
     def _fallback_workflow_response(self, workflow_id: str, metadata: Dict[str, Any], error: Optional[str] = None) -> Dict[str, Any]:

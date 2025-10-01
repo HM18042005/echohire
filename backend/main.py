@@ -110,10 +110,12 @@ async def generate_ai_feedback_for_interview(interview_id: str, interview_data: 
 # Deployment timestamp: 2025-09-24 19:07:53
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 import os
 import uuid
@@ -281,6 +283,135 @@ VAPI_WEBHOOK_SECRET = os.getenv("VAPI_WEBHOOK_SECRET", "")
 # Interview setup workflow assistant (Gemini-powered)
 workflow_assistant = InterviewSetupAssistant(os.getenv("GOOGLE_AI_API_KEY", ""))
 
+AI_FEEDBACK_SOURCES = {"ai_auto", "ai_on_demand", "legacy_ai"}
+MANUAL_FEEDBACK_SOURCE = "manual"
+
+
+def _now_iso() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _map_ai_recommendation(analysis: Dict[str, Any]) -> Tuple[str, str]:
+    raw = str(analysis.get("hiringRecommendation", "")).strip().lower()
+    narrative = analysis.get("recommendation")
+    mapping = {
+        "hire": ("recommended", "Strong Hire - Recommended for immediate offer"),
+        "strong_hire": ("recommended", "Strong Hire - Recommended for immediate offer"),
+        "conditional_hire": ("conditionallyRecommended", "Conditional Hire - Recommend additional assessment"),
+        "no_hire": ("notRecommended", "No Hire - Does not meet current requirements"),
+        "reject": ("notRecommended", "No Hire - Does not meet current requirements"),
+    }
+    final_verdict, fallback = mapping.get(raw, ("conditionallyRecommended", "Review Recommended - Additional evaluation suggested"))
+    if not narrative or not str(narrative).strip():
+        narrative = fallback
+    return final_verdict, str(narrative)
+
+
+def _build_ai_feedback_payload(
+    interview_id: str,
+    user_id: str,
+    analysis: Dict[str, Any],
+    transcript_text: str,
+    source: str,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    ai_analysis_id = str(uuid.uuid4())
+    timestamp = _now_iso()
+    final_verdict, recommendation_text = _map_ai_recommendation(analysis)
+
+    technical_assessment = analysis.get("technicalAssessment", {})
+    communication_assessment = analysis.get("communicationAssessment", {})
+    problem_solving_assessment = analysis.get("problemSolvingAssessment", {})
+    role_specific_assessment = analysis.get("roleSpecificAssessment", {})
+    interview_quality = analysis.get("interviewQuality", {})
+
+    feedback_doc = {
+        "id": ai_analysis_id,
+        "aiAnalysisId": ai_analysis_id,
+        "interviewId": interview_id,
+        "userId": user_id,
+        "source": source,
+        "overallScore": analysis.get("overallScore", 75),
+        "overallImpression": analysis.get("overallImpression", "Analysis completed"),
+        "keyInsights": analysis.get("keyInsights", []),
+        "confidenceScore": analysis.get("confidenceScore", 0.75),
+        "speechAnalysis": analysis.get("speechAnalysis", {}),
+        "transcriptAnalysis": analysis.get("transcriptAnalysis", ""),
+        "emotionalAnalysis": analysis.get("emotionalAnalysis", {}),
+        "finalVerdict": final_verdict,
+        "recommendation": recommendation_text,
+        "technicalAssessment": technical_assessment,
+        "communicationAssessment": communication_assessment,
+        "problemSolvingAssessment": problem_solving_assessment,
+        "roleSpecificAssessment": role_specific_assessment,
+        "interviewQuality": interview_quality,
+        "recommendedAreas": analysis.get("recommendedAreas", []),
+        "nextSteps": analysis.get("nextSteps", "Further evaluation recommended"),
+        "transcriptPreview": transcript_text[:5000] if transcript_text else None,
+        "createdAt": timestamp,
+        "updatedAt": timestamp,
+    }
+
+    response_payload = {
+        "interviewId": interview_id,
+        "aiAnalysisId": ai_analysis_id,
+        "overallScore": feedback_doc["overallScore"],
+        "overallImpression": feedback_doc["overallImpression"],
+        "keyInsights": feedback_doc["keyInsights"],
+        "confidenceScore": feedback_doc["confidenceScore"],
+        "speechAnalysis": feedback_doc["speechAnalysis"],
+        "transcriptAnalysis": feedback_doc["transcriptAnalysis"],
+        "emotionalAnalysis": feedback_doc["emotionalAnalysis"],
+        "recommendation": recommendation_text,
+        "technicalAssessment": technical_assessment,
+        "communicationAssessment": communication_assessment,
+        "problemSolvingAssessment": problem_solving_assessment,
+        "roleSpecificAssessment": role_specific_assessment,
+        "interviewQuality": interview_quality,
+        "recommendedAreas": feedback_doc["recommendedAreas"],
+        "nextSteps": feedback_doc["nextSteps"],
+        "source": source,
+    }
+
+    return feedback_doc, response_payload
+
+
+def _select_latest_ai_feedback(docs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    for data in docs:
+        source = data.get("source")
+        if source in AI_FEEDBACK_SOURCES or (not source and data.get("aiAnalysisId")):
+            if not source:
+                data["source"] = "legacy_ai"
+            candidates.append(data)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
+    return candidates[0]
+
+
+def _feedback_doc_to_response(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "interviewId": data.get("interviewId"),
+        "aiAnalysisId": data.get("aiAnalysisId") or data.get("id"),
+        "overallScore": data.get("overallScore", 75),
+        "overallImpression": data.get("overallImpression", "Analysis completed"),
+        "keyInsights": data.get("keyInsights", []),
+        "confidenceScore": data.get("confidenceScore", 0.75),
+        "speechAnalysis": data.get("speechAnalysis", {}),
+        "transcriptAnalysis": data.get("transcriptAnalysis", data.get("transcriptPreview", "")),
+        "emotionalAnalysis": data.get("emotionalAnalysis", {}),
+        "recommendation": data.get("recommendation", "Review Recommended"),
+        "technicalAssessment": data.get("technicalAssessment", {}),
+        "communicationAssessment": data.get("communicationAssessment", {}),
+        "problemSolvingAssessment": data.get("problemSolvingAssessment", {}),
+        "roleSpecificAssessment": data.get("roleSpecificAssessment", {}),
+        "interviewQuality": data.get("interviewQuality", {}),
+        "recommendedAreas": data.get("recommendedAreas", []),
+        "nextSteps": data.get("nextSteps", "Further evaluation recommended"),
+        "source": data.get("source"),
+    }
+
+
 # Pydantic Models
 class ProfileIn(BaseModel):
     displayName: Optional[str] = Field(None, max_length=80)
@@ -378,7 +509,7 @@ class FeedbackIn(BaseModel):
         return v
 
 class FeedbackOut(BaseModel):
-    id: str
+    id: Optional[str] = None
     interviewId: str
     userId: str
     overallScore: int
@@ -387,6 +518,8 @@ class FeedbackOut(BaseModel):
     finalVerdict: str
     recommendation: str
     createdAt: str
+    updatedAt: Optional[str] = None
+    source: Optional[str] = None
 
 # AI Interview Generation Models
 class InterviewQuestionModel(BaseModel):
@@ -477,6 +610,7 @@ class AIFeedbackResponse(BaseModel):
     interviewQuality: Optional[Dict[str, Any]] = None
     recommendedAreas: Optional[List[str]] = None
     nextSteps: Optional[str] = None
+    source: Optional[str] = None
 
 # Firebase token verification dependency
 async def verify_firebase_token(authorization: str = Header(...)):
@@ -1077,7 +1211,7 @@ async def workflow_finalize(session_id: str, payload: WorkflowFinalizeIn, user_d
 
         # Build interview record
         interview_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
         interview_doc = {
             "id": interview_id,
             "jobTitle": prefs.get("job_role") or "Interview",
@@ -1111,7 +1245,7 @@ async def workflow_finalize(session_id: str, payload: WorkflowFinalizeIn, user_d
                     "vapiCallId": start_resp.get("callId"),
                     "webCallUrl": start_resp.get("webCallUrl"),
                     "status": "inProgress",
-                    "updatedAt": datetime.utcnow().isoformat() + "Z",
+                    "updatedAt": _now_iso(),
                 }
                 interview_doc.update(updates)
                 if db is not None:
@@ -1123,7 +1257,7 @@ async def workflow_finalize(session_id: str, payload: WorkflowFinalizeIn, user_d
                 if db is not None:
                     db.collection("interviews").document(interview_id).update({
                         "status": "scheduled",
-                        "updatedAt": datetime.utcnow().isoformat() + "Z",
+                        "updatedAt": _now_iso(),
                     })
 
         return {
@@ -1153,7 +1287,7 @@ async def generate_interview(
 
         # Generate interview session ID
         session_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
 
         # Mock questions based on type and level (replace with AI generation later)
         questions = _generate_mock_questions(request.type, request.level, request.role)
@@ -1442,7 +1576,7 @@ async def get_profile(user_data: dict = Depends(verify_firebase_token)):
         if db is None:
             # Return mock profile when Firebase is not available
             print("🔄 Returning mock profile data - Firebase not available")
-            now = datetime.utcnow().isoformat() + "Z"
+            now = _now_iso()
             mock_profile = ProfileOut(
                 uid=uid,
                 email=email,
@@ -1464,7 +1598,7 @@ async def get_profile(user_data: dict = Depends(verify_firebase_token)):
             return ProfileOut(**profile_data)
 
         # Create new profile with defaults
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
         new_profile = {
             "uid": uid,
             "email": email,
@@ -1510,8 +1644,7 @@ async def update_profile(
             update_data["skills"] = [skill.strip() for skill in profile_data.skills]
         if profile_data.location is not None:
             update_data["location"] = profile_data.location.strip()
-
-        update_data["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+        update_data["updatedAt"] = _now_iso()
 
         # Update profile
         profile_ref.set(update_data, merge=True)
@@ -1536,7 +1669,7 @@ async def create_interview(
     try:
         uid = user_data["uid"]
         interview_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
 
         new_interview = {
             "id": interview_id,
@@ -1593,8 +1726,7 @@ async def create_ai_guided_interview(
     try:
         uid = user_data["uid"]
         session_id = str(uuid.uuid4())
-        interview_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
         
         print(f"🤖 Creating AI guided interview for company: {request.companyName}")
         print(f"📋 Session ID: {session_id}")
@@ -1784,7 +1916,7 @@ async def get_user_interviews(user_data: dict = Depends(verify_firebase_token)):
         raise HTTPException(status_code=500, detail="Failed to fetch interviews")
 
 def _mock_interviews(uid: str) -> List["InterviewOut"]:
-    now = datetime.utcnow().isoformat() + "Z"
+    now = _now_iso()
     return [
         InterviewOut(
             id="mock-interview-1",
@@ -1888,7 +2020,7 @@ async def get_user_interview_sessions(
         if db is None:
             # Return mock interview sessions when Firebase is not available
             print("🔄 Returning mock interview sessions - Firebase not available")
-            now = datetime.utcnow().isoformat() + "Z"
+            now = _now_iso()
             mock_sessions = [
                 InterviewSessionOut(
                     id="mock-session-1",
@@ -1962,7 +2094,7 @@ async def create_feedback(
     try:
         uid = user_data["uid"]
         feedback_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
 
         # Verify interview exists and belongs to user
         interview_ref = db.collection("interviews").document(interview_id)
@@ -1985,7 +2117,9 @@ async def create_feedback(
             "breakdown": [item.dict() for item in feedback_data.breakdown],
             "finalVerdict": feedback_data.finalVerdict,
             "recommendation": feedback_data.recommendation,
-            "createdAt": now
+            "createdAt": now,
+            "updatedAt": now,
+            "source": MANUAL_FEEDBACK_SOURCE,
         }
 
         # Save feedback to Firebase
@@ -2068,7 +2202,7 @@ async def start_ai_interview(
             raise HTTPException(status_code=500, detail="Failed to initialize Vapi call - no call ID returned")
         
         # Update interview with AI session info
-        now = datetime.utcnow().isoformat()
+        now = _now_iso()
         interview_ref.update({
             "aiSessionId": ai_session_id,
             "vapiCallId": call_id,
@@ -2146,7 +2280,7 @@ async def get_ai_interview_status(
                     "completed" in normalized or
                     "ended" in normalized
                 )
-                update_payload = {"updatedAt": datetime.utcnow().isoformat() + "Z"}
+                update_payload = {"updatedAt": _now_iso()}
                 if duration_val is not None:
                     update_payload["interviewDuration"] = duration_val
                 if transcript_url:
@@ -2206,7 +2340,7 @@ async def complete_ai_interview(
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Update interview status to completed
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
         update_payload = {
             "status": "completed",
             "updatedAt": now
@@ -2302,7 +2436,7 @@ async def get_interview_transcript(
                 transcript_text = await vapi_service.get_call_transcript(vapi_call_id)
                 if transcript_text and transcript_text.strip():
                     # Store it for future use
-                    now = datetime.utcnow().isoformat() + "Z"
+                    now = _now_iso()
                     transcript_doc = {
                         'interviewId': interview_id,
                         'userId': uid,
@@ -2333,115 +2467,91 @@ async def get_interview_transcript(
 @app.get("/interviews/{interview_id}/ai-feedback", response_model=AIFeedbackResponse)
 async def get_ai_feedback(
     interview_id: str,
-    user_data: dict = Depends(verify_firebase_token)
+    user_data: dict = Depends(verify_firebase_token),
+    force: bool = False,
 ):
     """Get AI-generated feedback for a completed interview"""
     try:
-        uid = user_data["uid"]
-        
-        # Get interview data
+        uid = user_data.get("uid")
+
+        if db is None:
+            transcript_text = "Mock interview transcript for analysis"
+            analysis = await gemini_service.analyze_interview_transcript(transcript_text, {
+                "jobTitle": "Interview",
+                "type": "technical",
+                "level": "mid",
+            })
+            _, response_payload = _build_ai_feedback_payload(
+                interview_id,
+                uid,
+                analysis,
+                transcript_text,
+                "ai_on_demand",
+            )
+            return AIFeedbackResponse(**response_payload)
+
         interview_ref = db.collection("interviews").document(interview_id)
         interview_doc = interview_ref.get()
-        
         if not interview_doc.exists:
             raise HTTPException(status_code=404, detail="Interview not found")
-        
+
         interview_data = interview_doc.to_dict()
         if interview_data.get("userId") != uid:
             raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Check if interview is completed
+
         if interview_data.get("status") != "completed":
             raise HTTPException(status_code=400, detail="Interview not completed yet")
-        
-        # Get existing feedback or generate new AI feedback
-        feedback_ref = db.collection("feedback").where("interviewId", "==", interview_id).where("userId", "==", uid)
-        feedback_docs = list(feedback_ref.stream())
-        
-        if feedback_docs:
-            # Return existing AI feedback
-            feedback_data = feedback_docs[0].to_dict()
-            return AIFeedbackResponse(
-                interviewId=interview_id,
-                aiAnalysisId=feedback_data.get("aiAnalysisId", ""),
-                overallScore=feedback_data.get("overallScore", 0),
-                overallImpression=feedback_data.get("overallImpression", ""),
-                keyInsights=feedback_data.get("keyInsights", []),
-                confidenceScore=feedback_data.get("confidenceScore", 0.0),
-                speechAnalysis=feedback_data.get("speechAnalysis", {}),
-                transcriptAnalysis=feedback_data.get("transcriptAnalysis", ""),
-                emotionalAnalysis=feedback_data.get("emotionalAnalysis", {}),
-                recommendation=feedback_data.get("finalVerdict", ""),
-                technicalAssessment=feedback_data.get("technicalAssessment", {}),
-                communicationAssessment=feedback_data.get("communicationAssessment", {}),
-                problemSolvingAssessment=feedback_data.get("problemSolvingAssessment", {}),
-                roleSpecificAssessment=feedback_data.get("roleSpecificAssessment", {}),
-                interviewQuality=feedback_data.get("interviewQuality", {}),
-                recommendedAreas=feedback_data.get("recommendedAreas", []),
-                nextSteps=feedback_data.get("nextSteps", "Further evaluation recommended")
-            )
-        else:
-            # Generate new AI feedback using Gemini
-            ai_analysis_id = str(uuid.uuid4())
 
-            # Get interview transcript from Vapi
-            vapi_call_id = interview_data.get("vapiCallId")
-            if vapi_call_id:
-                transcript = await vapi_service.get_call_transcript(vapi_call_id)
-            else:
-                transcript = "Mock interview transcript for analysis"
+        feedback_query = db.collection("feedback").where("interviewId", "==", interview_id).where("userId", "==", uid)
+        feedback_docs = [doc.to_dict() for doc in feedback_query.stream()]
+        existing_ai = _select_latest_ai_feedback(feedback_docs)
+        if existing_ai:
+            return AIFeedbackResponse(**_feedback_doc_to_response(existing_ai))
 
-            # Analyze with Gemini AI
-            ai_feedback_data = await gemini_service.analyze_interview_transcript(transcript, interview_data)
+        transcript_text = ""
+        transcript_snapshot = db.collection("transcripts").document(interview_id).get()
+        if transcript_snapshot.exists:
+            transcript_text = transcript_snapshot.to_dict().get("transcript", "") or ""
 
-            # Persist feedback to Firestore
+        vapi_call_id = interview_data.get("vapiCallId")
+        if not transcript_text and vapi_call_id:
             try:
-                now = datetime.utcnow().isoformat() + "Z"
-                feedback_doc = {
-                    "id": ai_analysis_id,
-                    "interviewId": interview_id,
-                    "userId": uid,
-                    "overallScore": ai_feedback_data.get("overallScore", 75),
-                    "overallImpression": ai_feedback_data.get("overallImpression", "Analysis completed"),
-                    "keyInsights": ai_feedback_data.get("keyInsights", []),
-                    "confidenceScore": ai_feedback_data.get("confidenceScore", 0.8),
-                    "speechAnalysis": ai_feedback_data.get("speechAnalysis", {}),
-                    "transcriptAnalysis": ai_feedback_data.get("transcriptAnalysis", ""),
-                    "emotionalAnalysis": ai_feedback_data.get("emotionalAnalysis", {}),
-                    "finalVerdict": ai_feedback_data.get("recommendation", "Review recommended"),
-                    "createdAt": now,
-                    "aiAnalysisId": ai_analysis_id,
-                }
-                db.collection("feedback").document(ai_analysis_id).set(feedback_doc)
-                # Update interview summary fields
-                db.collection("interviews").document(interview_id).update({
-                    "overallScore": feedback_doc["overallScore"],
-                    "updatedAt": now,
-                })
-            except Exception as save_err:
-                print(f"Warning: failed to save AI feedback: {save_err}")
+                transcript_text = await vapi_service.get_call_transcript(vapi_call_id) or ""
+            except Exception as transcript_err:
+                print(f"Transcript fetch error for {interview_id}: {transcript_err}")
 
-            # Structure the response
-            return AIFeedbackResponse(
-                interviewId=interview_id,
-                aiAnalysisId=ai_analysis_id,
-                overallScore=ai_feedback_data.get("overallScore", 75),
-                overallImpression=ai_feedback_data.get("overallImpression", "Analysis completed"),
-                keyInsights=ai_feedback_data.get("keyInsights", []),
-                confidenceScore=ai_feedback_data.get("confidenceScore", 0.8),
-                speechAnalysis=ai_feedback_data.get("speechAnalysis", {}),
-                transcriptAnalysis=ai_feedback_data.get("transcriptAnalysis", ""),
-                emotionalAnalysis=ai_feedback_data.get("emotionalAnalysis", {}),
-                recommendation=ai_feedback_data.get("recommendation", "Review recommended"),
-                technicalAssessment=ai_feedback_data.get("technicalAssessment", {}),
-                communicationAssessment=ai_feedback_data.get("communicationAssessment", {}),
-                problemSolvingAssessment=ai_feedback_data.get("problemSolvingAssessment", {}),
-                roleSpecificAssessment=ai_feedback_data.get("roleSpecificAssessment", {}),
-                interviewQuality=ai_feedback_data.get("interviewQuality", {}),
-                recommendedAreas=ai_feedback_data.get("recommendedAreas", []),
-                nextSteps=ai_feedback_data.get("nextSteps", "Further evaluation recommended")
-            )
-            
+        if not transcript_text.strip():
+            if not force:
+                return JSONResponse(
+                    status_code=202,
+                    content={
+                        "status": "pending_transcript",
+                        "message": "Transcript not yet available for AI analysis",
+                        "interviewId": interview_id,
+                    },
+                )
+            transcript_text = "Transcript not available. Proceeding with limited analysis."
+
+        analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
+        feedback_doc, response_payload = _build_ai_feedback_payload(
+            interview_id,
+            uid,
+            analysis,
+            transcript_text,
+            "ai_on_demand",
+        )
+
+        try:
+            db.collection("feedback").document(feedback_doc["id"]).set(feedback_doc)
+            interview_ref.update({
+                "overallScore": feedback_doc["overallScore"],
+                "updatedAt": feedback_doc["updatedAt"],
+            })
+        except Exception as save_err:
+            print(f"Warning: failed to persist AI feedback for {interview_id}: {save_err}")
+
+        return AIFeedbackResponse(**response_payload)
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2469,7 +2579,7 @@ async def update_vapi_call_id(
         if interview_data.get("userId") != uid:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        now = datetime.utcnow().isoformat() + "Z"
+        now = _now_iso()
         update_payload: Dict[str, Any] = {
             "vapiCallId": payload.callId,
             "updatedAt": now,
@@ -2510,7 +2620,7 @@ async def stop_ai_interview(
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Update interview status
-        now = datetime.utcnow().isoformat()
+        now = _now_iso()
         interview_ref.update({
             "status": "cancelled",
             "updatedAt": now
@@ -2593,13 +2703,9 @@ async def vapi_webhook(request: Request):
                 except Exception as e:
                     print(f"❌ Interview lookup error: {e}")
 
-        # CRITICAL FIX: Update interview status and trigger feedback
-        if interview_ref is not None and interview_data is not None:
-            print(f"📝 Updating interview: {interview_id}")
-            
-            update_payload = {"updatedAt": datetime.utcnow().isoformat() + "Z"}
-            
-            # Normalize status
+        # Persist updates if we have a document reference
+        if interview_ref is not None:
+            update_payload = {"updatedAt": _now_iso()}
             if status:
                 normalized = "inProgress"
                 if "completed" in status or "ended" in status or status == "completed":
@@ -2628,8 +2734,52 @@ async def vapi_webhook(request: Request):
 
             # CRITICAL FIX: Improved feedback generation on completion
             try:
-                if update_payload.get("status") == "completed":
-                    await generate_ai_feedback_for_interview(interview_id, interview_data, call_id, transcript_url)
+                if (
+                    AUTO_GENERATE_AI_FEEDBACK
+                    and update_payload.get("status") == "completed"
+                    and interview_data is not None
+                ):
+                    feedback_docs = [doc.to_dict() for doc in db.collection("feedback").where("interviewId", "==", interview_id).stream()]
+                    existing_ai = _select_latest_ai_feedback(feedback_docs)
+                    if existing_ai is None:
+                        transcript_text = ""
+                        transcript_snapshot = db.collection("transcripts").document(interview_id).get()
+                        if transcript_snapshot.exists:
+                            transcript_text = transcript_snapshot.to_dict().get("transcript", "") or ""
+
+                        if not transcript_text:
+                            turl = update_payload.get("transcriptUrl") or interview_data.get("transcriptUrl")
+                            if turl:
+                                try:
+                                    async with httpx.AsyncClient() as client:
+                                        t_resp = await client.get(turl, timeout=20)
+                                        if t_resp.status_code == 200:
+                                            transcript_text = t_resp.text
+                                except Exception as download_err:
+                                    print(f"Transcript download error: {download_err}")
+
+                        if not transcript_text and call_id:
+                            try:
+                                transcript_text = await vapi_service.get_call_transcript(call_id) or ""
+                            except Exception as transcript_err:
+                                print(f"Webhook transcript fetch error: {transcript_err}")
+
+                        if transcript_text:
+                            analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
+                            feedback_doc, _response_payload = _build_ai_feedback_payload(
+                                interview_id,
+                                interview_data.get("userId", ""),
+                                analysis,
+                                transcript_text,
+                                "ai_auto",
+                            )
+                            db.collection("feedback").document(feedback_doc["id"]).set(feedback_doc)
+                            db.collection("interviews").document(interview_id).update({
+                                "overallScore": feedback_doc["overallScore"],
+                                "updatedAt": feedback_doc["updatedAt"],
+                            })
+                        else:
+                            print(f"Skipping auto AI feedback for {interview_id}: transcript unavailable")
             except Exception as e:
                 print(f"❌ Feedback generation failed: {e}")
         else:

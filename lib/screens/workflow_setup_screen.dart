@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_service.dart';
+import '../services/ai_interview_launcher.dart';
 import '../models/interview.dart';
-import 'ai_interview_screen.dart';
 
 class WorkflowSetupScreen extends ConsumerStatefulWidget {
   const WorkflowSetupScreen({super.key});
 
   @override
-  ConsumerState<WorkflowSetupScreen> createState() => _WorkflowSetupScreenState();
+  ConsumerState<WorkflowSetupScreen> createState() =>
+      _WorkflowSetupScreenState();
 }
 
 class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
@@ -102,7 +103,9 @@ class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme.copyWith(primary: Colors.blue),
+            colorScheme: Theme.of(
+              context,
+            ).colorScheme.copyWith(primary: Colors.blue),
           ),
           child: child!,
         );
@@ -123,7 +126,9 @@ class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
       final iso = _interviewDate?.toUtc().toIso8601String();
       final res = await ApiServiceSingleton.instance.workflowFinalize(
         sessionId: _sessionId!,
-        companyName: _companyCtrl.text.trim().isNotEmpty ? _companyCtrl.text.trim() : null,
+        companyName: _companyCtrl.text.trim().isNotEmpty
+            ? _companyCtrl.text.trim()
+            : null,
         interviewDateIso: iso,
         autoStart: true,
       );
@@ -133,17 +138,14 @@ class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
       final interview = Interview.fromJson(interviewJson);
 
       final start = res['start'] as Map<String, dynamic>?;
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AIInterviewScreen(
-              interview: interview,
-              sessionData: start ?? {},
-            ),
-          ),
-        );
-      }
+
+      if (!mounted) return;
+
+      await AIInterviewLauncher.launchFromStartData(
+        context,
+        interview: interview,
+        startData: start,
+      );
     } catch (e) {
       _showError('Failed to finalize: $e');
     } finally {
@@ -165,9 +167,9 @@ class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
   @override
@@ -181,7 +183,10 @@ class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
           if (_readyToFinalize)
             TextButton.icon(
               onPressed: _finalizing ? null : _finalize,
-              icon: const Icon(Icons.play_circle_fill, color: Colors.blueAccent),
+              icon: const Icon(
+                Icons.play_circle_fill,
+                color: Colors.blueAccent,
+              ),
               label: Text(
                 _finalizing ? 'Starting…' : 'Start Interview',
                 style: const TextStyle(color: Colors.blueAccent),
@@ -209,7 +214,9 @@ class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
                 final m = _messages[i];
                 final isAi = m.isAi;
                 return Align(
-                  alignment: isAi ? Alignment.centerLeft : Alignment.centerRight,
+                  alignment: isAi
+                      ? Alignment.centerLeft
+                      : Alignment.centerRight,
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.all(12),
@@ -244,7 +251,9 @@ class _WorkflowSetupScreenState extends ConsumerState<WorkflowSetupScreen> {
                       isDense: true,
                       filled: true,
                       fillColor: const Color(0xFF2C2C2C),
-                      hintText: _loading ? 'Please wait…' : 'Type your response…',
+                      hintText: _loading
+                          ? 'Please wait…'
+                          : 'Type your response…',
                       hintStyle: const TextStyle(color: Colors.grey),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -296,10 +305,10 @@ class _FinalizeExtras extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           'Optional details before starting',
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: Colors.grey, fontWeight: FontWeight.bold),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.grey,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -321,7 +330,10 @@ class _FinalizeExtras extends StatelessWidget {
           children: [
             Expanded(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF2C2C2C),
                   borderRadius: BorderRadius.circular(8),
@@ -351,10 +363,9 @@ class _FinalizeExtras extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Complete role, type, and level with the assistant to enable Start.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Colors.orange),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.orange),
                 ),
               ),
             ],

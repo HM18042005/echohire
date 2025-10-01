@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import '../models/interview.dart';
 import '../services/api_service.dart';
-import 'ai_interview_screen.dart';
+import '../services/ai_interview_launcher.dart';
 import 'interview_results_screen.dart';
 
 /// InterviewDetailScreen displays comprehensive interview information and actions
@@ -482,18 +482,13 @@ class _InterviewDetailScreenState extends ConsumerState<InterviewDetailScreen> {
         widget.interview.id,
       );
 
-      if (mounted) {
-        // Navigate to AI Interview Screen
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => AIInterviewScreen(
-              interview: widget.interview,
-              sessionData: response,
-            ),
-          ),
-        );
-      }
+      if (!mounted) return;
+
+      await AIInterviewLauncher.launchFromStartData(
+        context,
+        interview: widget.interview,
+        startData: response,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
