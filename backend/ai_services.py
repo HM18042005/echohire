@@ -894,7 +894,6 @@ Candidate: Thank you so much! I really enjoyed our conversation and I'm excited 
                 
                 # Prepare workflow call configuration
                 call_config: Dict[str, Any] = {
-                    "type": "workflow",
                     "workflowId": workflow_id,
                     "metadata": {
                         **metadata,
