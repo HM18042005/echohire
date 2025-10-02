@@ -37,6 +37,29 @@ async def stop_vapi_call(call_id: str) -> bool:
         print(f"stop_vapi_call error: {e}")
         return False
 
+
+async def fetch_transcript_with_retries(call_id: str, max_attempts: int = 3, base_delay_seconds: int = 15) -> Optional[str]:
+    """Attempt to fetch a transcript with retries and exponential backoff."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            print(f"🎙️ Fetching transcript for call {call_id} (attempt {attempt}/{max_attempts})")
+            transcript = await vapi_service.get_call_transcript(call_id)
+        except Exception as err:
+            print(f"⚠️ Transcript fetch error on attempt {attempt} for call {call_id}: {err}")
+            transcript = None
+
+        if transcript:
+            print(f"✅ Transcript retrieved for call {call_id} on attempt {attempt}")
+            return transcript
+
+        if attempt < max_attempts:
+            delay = base_delay_seconds * (2 ** (attempt - 1))
+            print(f"⏳ Transcript unavailable for call {call_id}. Retrying in {delay} seconds...")
+            await asyncio.sleep(delay)
+
+    print(f"❌ Failed to retrieve transcript for call {call_id} after {max_attempts} attempts")
+    return None
+
 # Initialize Firebase Admin SDK
 try:
     import json, base64
@@ -2459,23 +2482,20 @@ async def complete_ai_interview(
                 if vapi_status.get("recordingUrl"):
                     update_payload["audioRecordingUrl"] = vapi_status.get("recordingUrl")
                 
-                # Also try to get transcript directly via API
-                try:
-                    transcript_text = await vapi_service.get_call_transcript(vapi_call_id)
-                    if transcript_text and transcript_text.strip():
-                        # Store transcript directly in Firebase
-                        transcript_doc = {
-                            'interviewId': interview_id,
-                            'userId': uid,
-                            'transcript': transcript_text,
-                            'createdAt': now,
-                            'updatedAt': now,
-                        }
-                        db.collection('transcripts').document(interview_id).set(transcript_doc, merge=True)
-                        print(f"✅ Transcript saved directly to Firebase for interview {interview_id}")
-                    
-                except Exception as transcript_err:
-                    print(f"Warning: Could not fetch transcript directly: {transcript_err}")
+                # Also try to get transcript directly via API with retries
+                transcript_text = await fetch_transcript_with_retries(vapi_call_id)
+                if transcript_text and transcript_text.strip():
+                    transcript_doc = {
+                        'interviewId': interview_id,
+                        'userId': uid,
+                        'transcript': transcript_text,
+                        'createdAt': now,
+                        'updatedAt': now,
+                    }
+                    db.collection('transcripts').document(interview_id).set(transcript_doc, merge=True)
+                    print(f"✅ Transcript saved directly to Firebase for interview {interview_id}")
+                else:
+                    print(f"⚠️ Transcript still unavailable for interview {interview_id} during manual completion")
                     
             except Exception as e:
                 print(f"Warning: Could not get final Vapi status during completion: {e}")
@@ -2590,28 +2610,24 @@ async def get_interview_transcript(
         # If not stored, try to fetch from Vapi
         vapi_call_id = interview_data.get("vapiCallId")
         if vapi_call_id:
-            try:
-                transcript_text = await vapi_service.get_call_transcript(vapi_call_id)
-                if transcript_text and transcript_text.strip():
-                    # Store it for future use
-                    now = _now_iso()
-                    transcript_doc = {
-                        'interviewId': interview_id,
-                        'userId': uid,
-                        'transcript': transcript_text,
-                        'createdAt': now,
-                        'updatedAt': now,
-                    }
-                    db.collection('transcripts').document(interview_id).set(transcript_doc)
-                    
-                    return {
-                        "interviewId": interview_id,
-                        "transcript": transcript_text,
-                        "createdAt": now,
-                        "source": "vapi_api"
-                    }
-            except Exception as e:
-                print(f"Error fetching transcript from Vapi: {e}")
+            transcript_text = await fetch_transcript_with_retries(vapi_call_id)
+            if transcript_text and transcript_text.strip():
+                now = _now_iso()
+                transcript_doc = {
+                    'interviewId': interview_id,
+                    'userId': uid,
+                    'transcript': transcript_text,
+                    'createdAt': now,
+                    'updatedAt': now,
+                }
+                db.collection('transcripts').document(interview_id).set(transcript_doc)
+
+                return {
+                    "interviewId": interview_id,
+                    "transcript": transcript_text,
+                    "createdAt": now,
+                    "source": "vapi_api"
+                }
         
         # Return not found if no transcript available
         raise HTTPException(status_code=404, detail="Transcript not available")
@@ -2709,10 +2725,7 @@ async def get_ai_feedback(
 
         vapi_call_id = interview_data.get("vapiCallId")
         if not transcript_text and vapi_call_id:
-            try:
-                transcript_text = await vapi_service.get_call_transcript(vapi_call_id) or ""
-            except Exception as transcript_err:
-                print(f"Transcript fetch error for {interview_id}: {transcript_err}")
+            transcript_text = await fetch_transcript_with_retries(vapi_call_id) or ""
 
         if not transcript_text.strip():
             if not force:
@@ -2945,10 +2958,7 @@ async def vapi_webhook(request: Request):
                                     print(f"Transcript download error: {download_err}")
 
                         if not transcript_text and call_id:
-                            try:
-                                transcript_text = await vapi_service.get_call_transcript(call_id) or ""
-                            except Exception as transcript_err:
-                                print(f"Webhook transcript fetch error: {transcript_err}")
+                            transcript_text = await fetch_transcript_with_retries(call_id) or ""
 
                         if transcript_text:
                             analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)

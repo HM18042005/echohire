@@ -799,78 +799,41 @@ class VapiInterviewService:
             print(f"Vapi call stop error: {e}")
             return True  # Return True for mock implementation
     
-    async def get_call_transcript(self, call_id: str) -> str:
-        """Get the transcript of a completed call"""
+    async def get_call_transcript(self, call_id: str) -> Optional[str]:
+        """Get the transcript of a completed call. Returns None when unavailable."""
         try:
             async with httpx.AsyncClient() as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
                     "Content-Type": "application/json"
                 }
-                
+
                 response = await client.get(
                     f"{self.base_url}/call/{call_id}/transcript",
                     headers=headers
                 )
-                
+
                 if response.status_code == 200:
                     transcript_data = response.json()
-                    # Process transcript format from Vapi
                     messages = transcript_data.get("messages", [])
                     transcript_text = "\n".join([
                         f"{msg.get('role', 'unknown')}: {msg.get('message', '')}"
                         for msg in messages
                     ])
                     return transcript_text
-                else:
-                    raise Exception(f"Failed to get transcript: {response.status_code}")
-            
+
+                if response.status_code == 404:
+                    print(f"Vapi transcript not ready for call {call_id} (404)")
+                    return None
+
+                print(
+                    f"Failed to get transcript for call {call_id}: HTTP {response.status_code}"
+                )
+                return None
+
         except Exception as e:
-            print(f"Vapi transcript error: {e}")
-            # Return mock transcript for development
-            return """Interviewer: Hello! Thank you for joining us today. Can you please introduce yourself and tell us about your background?
-
-Candidate: Hi, thank you for having me. My name is Alex Johnson and I'm a full-stack software developer with about 4 years of experience. I've been working primarily in web development, with strong expertise in JavaScript, React, Node.js, and Python. I also have experience with cloud platforms like AWS and database technologies including PostgreSQL and MongoDB.
-
-Interviewer: That's excellent! Can you walk me through a challenging technical project you've worked on recently?
-
-Candidate: Absolutely! Recently I led the development of a real-time collaboration platform for a client - think Google Docs but for code editing. The main challenges were implementing real-time synchronization across multiple users, handling conflict resolution, and maintaining performance with large codebases.
-
-I used WebSockets for real-time communication, implemented operational transformation algorithms for conflict resolution, and optimized the backend with Redis for session management and PostgreSQL for persistence. The frontend was built with React and we used Monaco Editor as the base code editor.
-
-Interviewer: That sounds complex! How did you handle the operational transformation for conflict resolution?
-
-Candidate: Great question! I implemented a custom OT system where each edit operation is timestamped and includes positional metadata. When conflicts occur, we transform the operations based on their timestamps and positions. For example, if two users insert text at the same position, we adjust the second operation's position to account for the first insertion.
-
-I also implemented a central authority server that maintains the canonical state and broadcasts transformed operations to all connected clients. This ensured consistency across all sessions.
-
-Interviewer: Impressive! What about testing? How did you ensure the reliability of such a complex system?
-
-Candidate: Testing was crucial for this project. I wrote comprehensive unit tests for the OT algorithms, integration tests for the WebSocket connections, and end-to-end tests simulating multiple concurrent users. I also implemented property-based testing to verify that our OT functions maintained the required mathematical properties.
-
-For load testing, we used Artillery to simulate hundreds of concurrent users making rapid edits. We also set up monitoring with DataDog to track performance metrics in production.
-
-Interviewer: Excellent approach to testing. Now, let me ask you a technical question. How would you design a system to handle 1 million concurrent users?
-
-Candidate: For 1 million concurrent users, I'd focus on horizontal scalability and efficient resource utilization. I'd start with a microservices architecture deployed on Kubernetes for auto-scaling. 
-
-For the backend, I'd use a load balancer with multiple Node.js instances, implement connection pooling, and use Redis Cluster for session management and caching. The database layer would involve read replicas and sharding strategies.
-
-For real-time features, I'd implement WebSocket connection management with sticky sessions or use a message broker like Redis Pub/Sub or Apache Kafka to coordinate between server instances.
-
-I'd also implement CDN for static assets, database query optimization with proper indexing, and use monitoring tools to identify bottlenecks. Circuit breakers and rate limiting would be essential for system stability.
-
-Interviewer: That's a comprehensive approach! Do you have any questions about our company or the role?
-
-Candidate: Yes, I do! I'm curious about the technical stack you're currently using and what kind of scaling challenges the team is facing. Also, I'd love to know more about the team structure and how you approach code reviews and technical decision-making.
-
-Interviewer: We primarily use React, Node.js, Python for ML services, and AWS for infrastructure. We're currently scaling from 100K to 1M users, so your experience would be very relevant. We work in small cross-functional teams with pair programming and collaborative code reviews.
-
-Candidate: That sounds like an exciting challenge and a great team environment! I'm really interested in contributing to that scaling journey and working with the technologies you mentioned.
-
-Interviewer: Wonderful! Thank you for your time today, Alex. You've demonstrated strong technical knowledge and problem-solving skills. We'll be in touch soon with next steps.
-
-Candidate: Thank you so much! I really enjoyed our conversation and I'm excited about the possibility of joining your team. Have a great day!"""
+            print(f"Vapi transcript error for call {call_id}: {e}")
+            return None
 
     async def start_workflow_call(self, workflow_id: str, metadata: Dict[str, Any], phone_number: Optional[str] = None) -> Dict[str, Any]:
         """
