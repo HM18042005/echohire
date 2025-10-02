@@ -86,6 +86,111 @@ async def fetch_transcript_with_retries(
     print(f"❌ Exhausted transcript retries for call {call_id} after {max_attempts} attempts")
     return None
 
+
+def _normalize_vapi_status(status: Optional[str]) -> str:
+    if not status:
+        return ""
+    return status.strip().lower().replace("-", "_")
+
+
+ACTIVE_VAPI_STATUSES = {
+    "created",
+    "queued",
+    "initiated",
+    "initializing",
+    "ringing",
+    "connecting",
+    "running",
+    "processing",
+    "in_progress",
+    "in_progress",
+    "inprogress",
+    "call_started",
+    "call_in_progress",
+    "ongoing",
+    "open",
+}
+
+COMPLETED_VAPI_STATUSES = {
+    "completed",
+    "completed_successfully",
+    "ended",
+    "finished",
+    "call_ended",
+    "call_completed",
+    "done",
+}
+
+FAILED_VAPI_STATUSES = {
+    "failed",
+    "error",
+    "timeout_error",
+    "cancelled",
+    "canceled",
+    "abandoned",
+    "hangup",
+}
+
+TERMINAL_VAPI_STATUSES = COMPLETED_VAPI_STATUSES | FAILED_VAPI_STATUSES
+
+
+async def wait_for_vapi_call_settled(
+    call_id: str,
+    *,
+    initial_status: Optional[Dict[str, Any]] = None,
+    force_stop: bool = False,
+    max_checks: int = 6,
+    initial_delay_seconds: int = 10,
+) -> Optional[Dict[str, Any]]:
+    """Poll the Vapi API until the call reaches a terminal state or checks are exhausted."""
+
+    status_payload = initial_status
+    attempt = 1
+    delay = initial_delay_seconds
+
+    if status_payload is None:
+        try:
+            status_payload = await vapi_service.get_call_status(call_id)
+        except Exception as err:
+            print(f"⚠️ Initial status poll failed for call {call_id}: {err}")
+            status_payload = None
+
+    while True:
+        normalized = _normalize_vapi_status(status_payload.get("status") if status_payload else None)
+
+        if attempt == 1 and force_stop and normalized in ACTIVE_VAPI_STATUSES:
+            try:
+                stop_ok = await stop_vapi_call(call_id)
+                print(
+                    f"✋ Requested stop for call {call_id}; response={'OK' if stop_ok else 'unconfirmed'} (state={normalized or 'unknown'})"
+                )
+            except Exception as stop_err:
+                print(f"⚠️ Failed to request stop for call {call_id}: {stop_err}")
+
+        if normalized in TERMINAL_VAPI_STATUSES:
+            print(f"✅ Vapi call {call_id} reached terminal state '{normalized or 'unknown'}' on attempt {attempt}")
+            return status_payload
+
+        if attempt >= max_checks:
+            print(
+                f"⚠️ Vapi call {call_id} still in state '{normalized or 'unknown'}' after {attempt} checks"
+            )
+            return status_payload
+
+        print(
+            f"⌛ Waiting {delay} seconds for Vapi call {call_id} to settle (state='{normalized or 'unknown'}', check {attempt}/{max_checks})"
+        )
+        await asyncio.sleep(delay)
+        delay *= 2
+        attempt += 1
+
+        try:
+            status_payload = await vapi_service.get_call_status(call_id)
+        except Exception as err:
+            print(f"⚠️ Status poll error for call {call_id}: {err}")
+            status_payload = None
+
+
 # Initialize Firebase Admin SDK
 try:
     import json, base64
@@ -373,9 +478,27 @@ async def generate_ai_feedback_for_interview(
         existing_transcript.strip() if existing_transcript and existing_transcript.strip() else None
     )
 
+    call_status: Optional[Dict[str, Any]] = None
+
     if transcript_text:
         print(f"📄 Using pre-existing transcript for interview {interview_id}")
     else:
+        if call_id:
+            call_status = await wait_for_vapi_call_settled(
+                call_id,
+                initial_status=None,
+                force_stop=False,
+                max_checks=6,
+                initial_delay_seconds=10,
+            )
+            if call_status:
+                status_url = (
+                    call_status.get("transcriptUrl")
+                    or call_status.get("transcript_url")
+                )
+                if not transcript_url and status_url:
+                    transcript_url = status_url
+
         if transcript_url:
             print(f"🔗 Attempting transcript download from URL for interview {interview_id}")
             transcript_text = await download_transcript_from_url(transcript_url)
@@ -2555,13 +2678,22 @@ async def complete_ai_interview(
         if vapi_call_id:
             try:
                 # First try to get status with transcript URL
-                vapi_status = await vapi_service.get_call_status(vapi_call_id)
-                if vapi_status.get("duration"):
-                    update_payload["interviewDuration"] = vapi_status.get("duration")
-                if vapi_status.get("transcriptUrl"):
-                    update_payload["transcriptUrl"] = vapi_status.get("transcriptUrl")
-                if vapi_status.get("recordingUrl"):
-                    update_payload["audioRecordingUrl"] = vapi_status.get("recordingUrl")
+                initial_status = await vapi_service.get_call_status(vapi_call_id)
+                settled_status = await wait_for_vapi_call_settled(
+                    vapi_call_id,
+                    initial_status=initial_status,
+                    force_stop=True,
+                    max_checks=6,
+                    initial_delay_seconds=10,
+                )
+
+                status_payload = settled_status or initial_status or {}
+                if status_payload.get("duration"):
+                    update_payload["interviewDuration"] = status_payload.get("duration")
+                if status_payload.get("transcriptUrl"):
+                    update_payload["transcriptUrl"] = status_payload.get("transcriptUrl")
+                if status_payload.get("recordingUrl"):
+                    update_payload["audioRecordingUrl"] = status_payload.get("recordingUrl")
                 
                 # Also try to get transcript directly via API with retries
                 transcript_url_candidate = update_payload.get("transcriptUrl")
