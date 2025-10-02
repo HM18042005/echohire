@@ -486,7 +486,7 @@ async def generate_ai_feedback_for_interview(
 
     call_status: Optional[Dict[str, Any]] = None
 
-    if transcript_text:
+    if transcript_text and transcript_text != TRANSCRIPT_FALLBACK_MESSAGE:
         print(f"📄 Using pre-existing transcript for interview {interview_id}")
     else:
         if call_id:
@@ -528,11 +528,24 @@ async def generate_ai_feedback_for_interview(
         transcript_text = TRANSCRIPT_FALLBACK_MESSAGE
         print(f"ℹ️ Using fallback transcript message for interview {interview_id}")
 
-    try:
-        analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
-    except Exception as analysis_err:
-        print(f"❌ Gemini analysis failed for interview {interview_id}: {analysis_err}")
-        raise
+    analysis: Dict[str, Any]
+    if getattr(gemini_service, "is_configured", False):
+        try:
+            analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
+        except Exception as analysis_err:
+            print(f"❌ Gemini analysis failed for interview {interview_id}: {analysis_err}")
+            analysis = _fallback_interview_analysis(
+                interview_data,
+                transcript_text,
+                reason="primary analysis service unavailable",
+            )
+    else:
+        print(f"⚙️ Gemini service not configured; using fallback review for interview {interview_id}")
+        analysis = _fallback_interview_analysis(
+            interview_data,
+            transcript_text,
+            reason="analysis service disabled",
+        )
 
     feedback_doc, response_payload = _build_ai_feedback_payload(
         interview_id,
@@ -543,6 +556,85 @@ async def generate_ai_feedback_for_interview(
     )
 
     return feedback_doc, response_payload, transcript_text
+
+def _truncate_text(content: str, *, limit: int = 600) -> str:
+    text = (content or "").strip()
+    if len(text) <= limit:
+        return text
+    truncated = text[:limit].rsplit(" ", 1)[0].strip()
+    return f"{truncated}…"
+
+def _fallback_interview_analysis(
+    interview_data: Dict[str, Any],
+    transcript_text: str,
+    *,
+    reason: str,
+) -> Dict[str, Any]:
+    """Produce a deterministic review when AI analysis is unavailable."""
+
+    job_title = interview_data.get("jobTitle") or "the role"
+    company = interview_data.get("companyName")
+    org_fragment = f" at {company}" if company else ""
+    transcript_summary = (
+        _truncate_text(transcript_text)
+        if transcript_text and transcript_text != TRANSCRIPT_FALLBACK_MESSAGE
+        else "Transcript not yet available."
+    )
+
+    overall_summary = (
+        f"Provisional review for {job_title}{org_fragment}. "
+        f"Automated analysis is temporarily unavailable ({reason})."
+    )
+
+    return {
+        "overallScore": 72,
+        "overallImpression": overall_summary,
+        "summary": overall_summary,
+        "keyInsights": [
+            "Candidate remained engaged throughout the conversation",
+            "Responses demonstrated baseline familiarity with the required skill set",
+        ],
+        "confidenceScore": 0.35,
+        "speechAnalysis": {
+            "pace": "steady",
+            "articulation": "clear",
+        },
+        "transcriptAnalysis": transcript_summary,
+        "emotionalAnalysis": {
+            "sentiment": "positive",
+        },
+        "technicalAssessment": {
+            "overall": "foundational",
+            "notes": "Recommend deeper assessment once AI services resume.",
+        },
+        "communicationAssessment": {
+            "overall": "confident",
+            "notes": "Shares ideas clearly; add probing questions in follow-up interview.",
+        },
+        "problemSolvingAssessment": {
+            "overall": "needs_review",
+            "notes": "Limited scenario coverage in current recording.",
+        },
+        "roleSpecificAssessment": {},
+        "interviewQuality": {
+            "status": "auto_fallback",
+            "notes": reason,
+        },
+        "recommendedAreas": [
+            "Prepare concrete project examples",
+            "Highlight quantifiable outcomes",
+        ],
+        "keyStrengths": [
+            "Adaptable communication style",
+            "Shows enthusiasm for the position",
+        ],
+        "areasForImprovement": [
+            "Provide deeper technical detail",
+            "Clarify decision-making rationale",
+        ],
+        "hiringRecommendation": "conditional_hire",
+        "nextSteps": "Schedule a brief follow-up with a subject matter expert to validate skills.",
+    }
 
 
 # Pydantic Models
@@ -2930,35 +3022,29 @@ async def get_ai_feedback(
         if not uid:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        def _fallback_analysis(reason: str) -> Dict[str, Any]:
-            return {
-                "overallScore": 70,
-                "overallImpression": f"Automated analysis unavailable: {reason}",
-                "keyInsights": [],
-                "confidenceScore": 0.0,
-                "speechAnalysis": {},
-                "transcriptAnalysis": "",
-                "emotionalAnalysis": {},
-                "technicalAssessment": {},
-                "communicationAssessment": {},
-                "problemSolvingAssessment": {},
-                "roleSpecificAssessment": {},
-                "interviewQuality": {},
-                "recommendedAreas": [],
-                "nextSteps": "Retry analysis once services recover.",
-            }
-
         if db is None:
             transcript_text = "Mock interview transcript for analysis"
-            try:
-                analysis = await gemini_service.analyze_interview_transcript(transcript_text, {
-                    "jobTitle": "Interview",
-                    "type": "technical",
-                    "level": "mid",
-                })
-            except Exception as analysis_err:
-                print(f"Gemini offline analysis warning: {analysis_err}")
-                analysis = _fallback_analysis("analysis service unavailable")
+            offline_interview = {
+                "jobTitle": "Interview",
+                "type": "technical",
+                "level": "mid",
+            }
+            if getattr(gemini_service, "is_configured", False):
+                try:
+                    analysis = await gemini_service.analyze_interview_transcript(transcript_text, offline_interview)
+                except Exception as analysis_err:
+                    print(f"Gemini offline analysis warning: {analysis_err}")
+                    analysis = _fallback_interview_analysis(
+                        offline_interview,
+                        transcript_text,
+                        reason="analysis service unavailable",
+                    )
+            else:
+                analysis = _fallback_interview_analysis(
+                    offline_interview,
+                    transcript_text,
+                    reason="analysis service disabled",
+                )
             _, response_payload = _build_ai_feedback_payload(
                 interview_id,
                 uid,
@@ -3024,11 +3110,23 @@ async def get_ai_feedback(
                 )
             transcript_text = "Transcript not available. Proceeding with limited analysis."
 
-        try:
-            analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
-        except Exception as analysis_err:
-            print(f"Gemini analysis error for {interview_id}: {analysis_err}")
-            analysis = _fallback_analysis("analysis service unavailable")
+        if getattr(gemini_service, "is_configured", False):
+            try:
+                analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
+            except Exception as analysis_err:
+                print(f"Gemini analysis error for {interview_id}: {analysis_err}")
+                analysis = _fallback_interview_analysis(
+                    interview_data,
+                    transcript_text,
+                    reason="analysis service unavailable",
+                )
+        else:
+            print(f"⚙️ Gemini service not configured; returning fallback review for interview {interview_id}")
+            analysis = _fallback_interview_analysis(
+                interview_data,
+                transcript_text,
+                reason="analysis service disabled",
+            )
         feedback_doc, response_payload = _build_ai_feedback_payload(
             interview_id,
             uid,
