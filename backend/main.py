@@ -38,8 +38,32 @@ async def stop_vapi_call(call_id: str) -> bool:
         return False
 
 
-async def fetch_transcript_with_retries(call_id: str, max_attempts: int = 3, base_delay_seconds: int = 15) -> Optional[str]:
-    """Attempt to fetch a transcript with retries and exponential backoff."""
+async def download_transcript_from_url(url: str) -> Optional[str]:
+    """Download a transcript from a direct URL provided by Vapi."""
+    if not url:
+        return None
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=30)
+        if response.status_code == 200:
+            print(f"📥 Transcript downloaded from URL ({len(response.text)} chars)")
+            return response.text
+
+        print(f"⚠️ Transcript URL fetch failed with status {response.status_code}")
+    except Exception as err:
+        print(f"⚠️ Transcript download error from URL: {err}")
+
+    return None
+
+
+async def fetch_transcript_with_retries(
+    call_id: str,
+    max_attempts: int = 5,
+    initial_delay_seconds: int = 30,
+) -> Optional[str]:
+    """Attempt to fetch a transcript via Vapi polling with exponential backoff."""
+
     for attempt in range(1, max_attempts + 1):
         try:
             print(f"🎙️ Fetching transcript for call {call_id} (attempt {attempt}/{max_attempts})")
@@ -53,11 +77,13 @@ async def fetch_transcript_with_retries(call_id: str, max_attempts: int = 3, bas
             return transcript
 
         if attempt < max_attempts:
-            delay = base_delay_seconds * (2 ** (attempt - 1))
-            print(f"⏳ Transcript unavailable for call {call_id}. Retrying in {delay} seconds...")
+            delay = initial_delay_seconds * (2 ** (attempt - 1))
+            print(
+                f"⏳ Transcript unavailable for call {call_id}. Waiting {delay} seconds before retry {attempt + 1}."
+            )
             await asyncio.sleep(delay)
 
-    print(f"❌ Failed to retrieve transcript for call {call_id} after {max_attempts} attempts")
+    print(f"❌ Exhausted transcript retries for call {call_id} after {max_attempts} attempts")
     return None
 
 # Initialize Firebase Admin SDK
@@ -205,6 +231,7 @@ workflow_assistant = InterviewSetupAssistant(os.getenv("GOOGLE_AI_API_KEY", ""))
 
 AI_FEEDBACK_SOURCES = {"ai_auto", "ai_on_demand", "legacy_ai"}
 MANUAL_FEEDBACK_SOURCE = "manual"
+TRANSCRIPT_FALLBACK_MESSAGE = "Interview completed. The detailed transcript was not available for analysis."
 
 
 def _now_iso() -> str:
@@ -330,6 +357,60 @@ def _feedback_doc_to_response(data: Dict[str, Any]) -> Dict[str, Any]:
         "nextSteps": data.get("nextSteps", "Further evaluation recommended"),
         "source": data.get("source"),
     }
+
+
+async def generate_ai_feedback_for_interview(
+    interview_id: str,
+    interview_data: Dict[str, Any],
+    call_id: Optional[str] = None,
+    transcript_url: Optional[str] = None,
+    existing_transcript: Optional[str] = None,
+    source: str = "ai_auto",
+) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
+    """Generate AI feedback with prioritized transcript retrieval strategies."""
+
+    transcript_text: Optional[str] = (
+        existing_transcript.strip() if existing_transcript and existing_transcript.strip() else None
+    )
+
+    if transcript_text:
+        print(f"📄 Using pre-existing transcript for interview {interview_id}")
+    else:
+        if transcript_url:
+            print(f"🔗 Attempting transcript download from URL for interview {interview_id}")
+            transcript_text = await download_transcript_from_url(transcript_url)
+            if transcript_text:
+                print(f"✅ Transcript acquired from webhook URL for interview {interview_id}")
+            else:
+                print(f"⚠️ Transcript URL fetch failed for interview {interview_id}")
+
+        if not transcript_text and call_id:
+            print(f"📞 Falling back to Vapi polling for call {call_id}")
+            transcript_text = await fetch_transcript_with_retries(call_id)
+            if transcript_text:
+                print(f"✅ Transcript acquired via Vapi polling for interview {interview_id}")
+            else:
+                print(f"⚠️ Unable to retrieve transcript via polling for interview {interview_id}")
+
+    if not transcript_text:
+        transcript_text = TRANSCRIPT_FALLBACK_MESSAGE
+        print(f"ℹ️ Using fallback transcript message for interview {interview_id}")
+
+    try:
+        analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
+    except Exception as analysis_err:
+        print(f"❌ Gemini analysis failed for interview {interview_id}: {analysis_err}")
+        raise
+
+    feedback_doc, response_payload = _build_ai_feedback_payload(
+        interview_id,
+        interview_data.get("userId", ""),
+        analysis,
+        transcript_text,
+        source,
+    )
+
+    return feedback_doc, response_payload, transcript_text
 
 
 # Pydantic Models
@@ -2483,7 +2564,13 @@ async def complete_ai_interview(
                     update_payload["audioRecordingUrl"] = vapi_status.get("recordingUrl")
                 
                 # Also try to get transcript directly via API with retries
-                transcript_text = await fetch_transcript_with_retries(vapi_call_id)
+                transcript_url_candidate = update_payload.get("transcriptUrl")
+                if transcript_url_candidate:
+                    transcript_text = await download_transcript_from_url(transcript_url_candidate)
+
+                if not transcript_text:
+                    transcript_text = await fetch_transcript_with_retries(vapi_call_id)
+
                 if transcript_text and transcript_text.strip():
                     transcript_doc = {
                         'interviewId': interview_id,
@@ -2609,6 +2696,27 @@ async def get_interview_transcript(
         
         # If not stored, try to fetch from Vapi
         vapi_call_id = interview_data.get("vapiCallId")
+        candidate_url = interview_data.get("transcriptUrl")
+        if candidate_url:
+            downloaded = await download_transcript_from_url(candidate_url)
+            if downloaded and downloaded.strip():
+                now = _now_iso()
+                transcript_doc = {
+                    'interviewId': interview_id,
+                    'userId': uid,
+                    'transcript': downloaded,
+                    'createdAt': now,
+                    'updatedAt': now,
+                }
+                db.collection('transcripts').document(interview_id).set(transcript_doc)
+
+                return {
+                    "interviewId": interview_id,
+                    "transcript": downloaded,
+                    "createdAt": now,
+                    "source": "vapi_url"
+                }
+
         if vapi_call_id:
             transcript_text = await fetch_transcript_with_retries(vapi_call_id)
             if transcript_text and transcript_text.strip():
@@ -2724,6 +2832,11 @@ async def get_ai_feedback(
             transcript_text = transcript_snapshot.to_dict().get("transcript", "") or ""
 
         vapi_call_id = interview_data.get("vapiCallId")
+        if not transcript_text:
+            candidate_url = interview_data.get("transcriptUrl")
+            if candidate_url:
+                transcript_text = await download_transcript_from_url(candidate_url) or ""
+
         if not transcript_text and vapi_call_id:
             transcript_text = await fetch_transcript_with_retries(vapi_call_id) or ""
 
@@ -2941,41 +3054,52 @@ async def vapi_webhook(request: Request):
                     feedback_docs = [doc.to_dict() for doc in db.collection("feedback").where("interviewId", "==", interview_id).stream()]
                     existing_ai = _select_latest_ai_feedback(feedback_docs)
                     if existing_ai is None:
-                        transcript_text = ""
                         transcript_snapshot = db.collection("transcripts").document(interview_id).get()
+                        existing_transcript = ""
                         if transcript_snapshot.exists:
-                            transcript_text = transcript_snapshot.to_dict().get("transcript", "") or ""
+                            existing_transcript = transcript_snapshot.to_dict().get("transcript", "") or ""
 
-                        if not transcript_text:
-                            turl = update_payload.get("transcriptUrl") or interview_data.get("transcriptUrl")
-                            if turl:
-                                try:
-                                    async with httpx.AsyncClient() as client:
-                                        t_resp = await client.get(turl, timeout=20)
-                                        if t_resp.status_code == 200:
-                                            transcript_text = t_resp.text
-                                except Exception as download_err:
-                                    print(f"Transcript download error: {download_err}")
+                        candidate_transcript_url = (
+                            update_payload.get("transcriptUrl")
+                            or transcript_url
+                            or interview_data.get("transcriptUrl")
+                        )
+                        call_id_for_feedback = call_id or interview_data.get("vapiCallId")
 
-                        if not transcript_text and call_id:
-                            transcript_text = await fetch_transcript_with_retries(call_id) or ""
-
-                        if transcript_text:
-                            analysis = await gemini_service.analyze_interview_transcript(transcript_text, interview_data)
-                            feedback_doc, _response_payload = _build_ai_feedback_payload(
+                        try:
+                            feedback_doc, _, transcript_text = await generate_ai_feedback_for_interview(
                                 interview_id,
-                                interview_data.get("userId", ""),
-                                analysis,
-                                transcript_text,
-                                "ai_auto",
+                                interview_data,
+                                call_id=call_id_for_feedback,
+                                transcript_url=candidate_transcript_url,
+                                existing_transcript=existing_transcript,
+                                source="ai_auto",
                             )
+                        except Exception as feedback_err:
+                            print(f"Skipping auto AI feedback for {interview_id}: {feedback_err}")
+                        else:
                             db.collection("feedback").document(feedback_doc["id"]).set(feedback_doc)
                             db.collection("interviews").document(interview_id).update({
                                 "overallScore": feedback_doc["overallScore"],
                                 "updatedAt": feedback_doc["updatedAt"],
                             })
-                        else:
-                            print(f"Skipping auto AI feedback for {interview_id}: transcript unavailable")
+
+                            if (
+                                transcript_text
+                                and transcript_text.strip()
+                                and transcript_text != TRANSCRIPT_FALLBACK_MESSAGE
+                            ):
+                                db.collection("transcripts").document(interview_id).set(
+                                    {
+                                        "interviewId": interview_id,
+                                        "userId": feedback_doc.get("userId"),
+                                        "transcript": transcript_text,
+                                        "source": "ai_auto",
+                                        "createdAt": feedback_doc["createdAt"],
+                                        "updatedAt": feedback_doc["updatedAt"],
+                                    },
+                                    merge=True,
+                                )
             except Exception as e:
                 print(f"Auto feedback generation failed: {e}")
 
