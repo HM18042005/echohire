@@ -6,9 +6,10 @@ from typing import Optional, List, Dict, Any
 from typing import Optional, List, Dict, Any, Tuple
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
-from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, Security
 from fastapi.responses import HTMLResponse
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 import os
 import uuid
@@ -172,7 +173,9 @@ async def debug_ai():
 # Environment toggles
 AUTO_GENERATE_AI_FEEDBACK = os.getenv("AUTO_GENERATE_AI_FEEDBACK", "0") == "1"
 VAPI_WEBHOOK_SECRET = os.getenv("VAPI_WEBHOOK_SECRET", "")
-TOOLS_STATIC_BEARER_TOKEN = os.getenv("TOOLS_STATIC_BEARER_TOKEN") or os.getenv("TOOLS_BEARER_TOKEN")
+VAPI_SECRET_KEY = os.getenv("VAPI_SECRET_KEY")
+
+http_bearer_scheme = HTTPBearer()
 
 # Interview setup workflow assistant (Gemini-powered)
 workflow_assistant = InterviewSetupAssistant(os.getenv("GOOGLE_AI_API_KEY", ""))
@@ -508,21 +511,8 @@ class AIFeedbackResponse(BaseModel):
 
 
 class InterviewFeedbackPayload(BaseModel):
-    interviewId: str
-    feedbackId: Optional[str] = None
-    userId: Optional[str] = None
-    callId: Optional[str] = None
-    transcript: Optional[str] = None
-    transcriptUrl: Optional[str] = None
-    summary: Optional[str] = None
-    guidance: Optional[str] = None
-    analysis: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
-    overallScore: Optional[float] = Field(default=None, ge=0, le=100)
-    interviewStatus: Optional[str] = None
-    startedAt: Optional[str] = None
-    endedAt: Optional[str] = None
-    durationSeconds: Optional[int] = Field(default=None, ge=0)
+    call: Dict[str, Any]
+    analysis: Dict[str, Any]
 
 # Firebase token verification dependency
 async def verify_firebase_token(authorization: str = Header(...)):
@@ -557,19 +547,21 @@ async def verify_firebase_token(authorization: str = Header(...)):
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
-async def verify_static_bearer_token(authorization: str = Header(...)) -> Dict[str, Any]:
-    """Verify that the request contains the configured static bearer token used for tools."""
-    if not TOOLS_STATIC_BEARER_TOKEN:
+async def verify_static_bearer_token(
+    credentials: HTTPAuthorizationCredentials = Security(http_bearer_scheme),
+) -> str:
+    """Verify the static bearer token provided by the Vapi smart assistant."""
+    if not VAPI_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Tool authorization not configured")
 
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+    if credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=403, detail="Invalid authorization scheme")
 
-    provided = authorization.split(" ", 1)[1].strip()
-    if not hmac.compare_digest(provided, TOOLS_STATIC_BEARER_TOKEN):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    provided_token = credentials.credentials
+    if not provided_token or not hmac.compare_digest(provided_token, VAPI_SECRET_KEY):
+        raise HTTPException(status_code=403, detail="Unauthorized")
 
-    return {"authorized": True}
+    return provided_token
 
 # Endpoints
 @app.get("/health")
@@ -2504,161 +2496,63 @@ async def complete_ai_interview(
 
 
 @app.post("/tools/end-interview")
-async def tool_end_interview(
+async def end_interview_and_save_feedback(
     payload: InterviewFeedbackPayload,
-    _: Dict[str, Any] = Depends(verify_static_bearer_token),
+    api_key: str = Depends(verify_static_bearer_token),
 ):
-    """Secure endpoint used by tools (e.g., Vapi) to finalize an interview with feedback."""
     if db is None:
         raise HTTPException(status_code=503, detail="Feedback storage unavailable")
 
-    try:
-        interview_ref = db.collection("interviews").document(payload.interviewId)
-        interview_doc = interview_ref.get()
-        if not interview_doc.exists:
-            raise HTTPException(status_code=404, detail="Interview not found")
+    _ = api_key
 
-        interview_data = interview_doc.to_dict() or {}
-        user_id = payload.userId or interview_data.get("userId")
-        if not user_id:
-            raise HTTPException(status_code=400, detail="Missing userId for interview feedback")
+    metadata = payload.call.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    interview_id = metadata.get("interviewId") or metadata.get("interview_id")
+    user_id = metadata.get("userId") or metadata.get("user_id")
 
-        now = _now_iso()
-        feedback_id = payload.feedbackId or str(uuid.uuid4())
+    if not interview_id or not user_id:
+        raise HTTPException(status_code=400, detail="Missing interviewId or userId in payload")
 
-        analysis: Dict[str, Any] = payload.analysis or {}
-        if not isinstance(analysis, dict):
-            analysis = {}
+    analysis = payload.analysis or {}
+    now = _now_iso()
+    feedback_id = str(uuid.uuid4())
 
-        metadata: Dict[str, Any] = payload.metadata or {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-        else:
-            metadata = {k: v for k, v in metadata.items() if v is not None}
+    interview_ref = db.collection("interviews").document(interview_id)
+    interview_doc = interview_ref.get()
+    if not interview_doc.exists:
+        raise HTTPException(status_code=404, detail="Interview not found")
 
-        overall_score = payload.overallScore
-        if overall_score is None:
-            possible_score = analysis.get("overallScore")
-            if isinstance(possible_score, (int, float)):
-                overall_score = float(possible_score)
-        if overall_score is not None:
-            try:
-                overall_score = float(overall_score)
-            except (TypeError, ValueError):
-                overall_score = None
+    feedback_doc = {
+        "id": feedback_id,
+        "interviewId": interview_id,
+        "userId": user_id,
+        "overallScore": analysis.get("overallScore"),
+        "overallImpression": analysis.get("summary"),
+        "keyInsights": analysis.get("keyStrengths", []),
+        "recommendedAreas": analysis.get("areasForImprovement", []),
+        "finalVerdict": analysis.get("hiringRecommendation", "pending"),
+        "recommendation": analysis.get("nextSteps", ""),
+        "createdAt": now,
+        "updatedAt": now,
+        "source": "vapi_tool",
+        "analysis": analysis,
+        "callId": payload.call.get("id") or metadata.get("callId"),
+    }
 
-        call_id = payload.callId
-        if not call_id:
-            call_id = metadata.get("callId") or metadata.get("call_id")
-        if not call_id and analysis:
-            call_id = analysis.get("callId") or analysis.get("call_id")
+    db.collection("feedback").document(feedback_id).set(feedback_doc)
+    interview_ref.update({
+        "status": "completed",
+        "overallScore": analysis.get("overallScore"),
+        "feedbackId": feedback_id,
+        "feedbackGenerated": True,
+        "updatedAt": now,
+    })
 
-        feedback_doc: Dict[str, Any] = {
-            "id": feedback_id,
-            "interviewId": payload.interviewId,
-            "userId": user_id,
-            "callId": call_id,
-            "summary": payload.summary,
-            "guidance": payload.guidance,
-            "analysis": analysis,
-            "metadata": metadata,
-            "overallScore": overall_score,
-            "transcriptUrl": payload.transcriptUrl,
-            "createdAt": payload.startedAt or now,
-            "updatedAt": now,
-            "endedAt": payload.endedAt or now,
-            "durationSeconds": payload.durationSeconds,
-            "source": "vapi_tool",
-        }
-
-        transcript_saved = False
-        if payload.transcript and payload.transcript.strip():
-            feedback_doc["transcriptPreview"] = payload.transcript[:5000]
-            transcript_doc = {
-                "interviewId": payload.interviewId,
-                "userId": user_id,
-                "transcript": payload.transcript,
-                "source": "vapi_tool",
-                "callId": call_id,
-                "transcriptUrl": payload.transcriptUrl,
-                "createdAt": payload.endedAt or now,
-                "updatedAt": now,
-            }
-            db.collection("transcripts").document(payload.interviewId).set(
-                {k: v for k, v in transcript_doc.items() if v is not None},
-                merge=True,
-            )
-            transcript_saved = True
-
-        # Persist feedback in both nested and top-level collections for convenience
-        cleaned_feedback_doc = {k: v for k, v in feedback_doc.items() if v is not None}
-        interview_ref.collection("feedback").document(feedback_id).set(cleaned_feedback_doc, merge=True)
-        db.collection("feedback").document(feedback_id).set(cleaned_feedback_doc, merge=True)
-
-        interview_status = payload.interviewStatus or interview_data.get("status") or "completed"
-        updates: Dict[str, Any] = {
-            "status": interview_status,
-            "updatedAt": now,
-            "feedbackGenerated": True,
-            "feedbackId": feedback_id,
-            "transcriptAvailable": transcript_saved or bool(payload.transcriptUrl),
-            "aiFeedbackSource": "vapi_tool",
-        }
-
-        if overall_score is not None:
-            updates["overallScore"] = overall_score
-        if payload.summary:
-            updates["aiFeedbackSummary"] = payload.summary
-        if payload.guidance:
-            updates["aiFeedbackGuidance"] = payload.guidance
-        if analysis:
-            updates["aiFeedbackMetrics"] = analysis
-        if payload.durationSeconds is not None:
-            updates["interviewDuration"] = payload.durationSeconds
-        if call_id:
-            updates["vapiCallId"] = call_id
-        if metadata:
-            updates["toolMetadata"] = metadata
-        if payload.transcriptUrl:
-            updates["transcriptUrl"] = payload.transcriptUrl
-        if payload.endedAt:
-            updates["completedAt"] = payload.endedAt
-        if payload.startedAt:
-            updates.setdefault("startedAt", payload.startedAt)
-
-        interview_ref.update({k: v for k, v in updates.items() if v is not None})
-
-        response_payload: Dict[str, Any] = {
-            "disposition": "completed",
-            "interviewId": payload.interviewId,
-            "feedbackId": feedback_id,
-            "status": interview_status,
-            "transcriptStored": transcript_saved,
-            "overallScore": overall_score,
-            "summary": payload.summary,
-            "guidance": payload.guidance,
-            "analysis": analysis or None,
-            "updatedAt": now,
-            "next": "deliver_feedback",
-        }
-
-        response_metadata = {
-            key: value
-            for key, value in {
-                "callId": call_id,
-                "transcriptUrl": payload.transcriptUrl,
-            }.items()
-            if value
-        }
-        if response_metadata:
-            response_payload["metadata"] = response_metadata
-
-        return {k: v for k, v in response_payload.items() if v is not None}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"/tools/end-interview error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to finalize interview")
+    return {
+        "disposition": "end_call",
+        "message": "Thank you. We will be in touch shortly.",
+    }
 
 @app.get("/interviews/{interview_id}/transcript")
 async def get_interview_transcript(
