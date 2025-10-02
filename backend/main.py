@@ -147,6 +147,7 @@ async def wait_for_vapi_call_settled(
     status_payload = initial_status
     attempt = 1
     delay = initial_delay_seconds
+    stop_invoked = False
 
     if status_payload is None:
         try:
@@ -158,9 +159,14 @@ async def wait_for_vapi_call_settled(
     while True:
         normalized = _normalize_vapi_status(status_payload.get("status") if status_payload else None)
 
-        if attempt == 1 and force_stop and normalized in ACTIVE_VAPI_STATUSES:
+        if (
+            force_stop
+            and not stop_invoked
+            and normalized in ACTIVE_VAPI_STATUSES
+        ):
             try:
                 stop_ok = await stop_vapi_call(call_id)
+                stop_invoked = True
                 print(
                     f"✋ Requested stop for call {call_id}; response={'OK' if stop_ok else 'unconfirmed'} (state={normalized or 'unknown'})"
                 )

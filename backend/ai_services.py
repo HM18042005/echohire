@@ -780,20 +780,58 @@ class VapiInterviewService:
     async def stop_call(self, call_id: str) -> bool:
         """Stop an ongoing Vapi call"""
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
                     "x-api-key": self.vapi_api_key,
                     "Content-Type": "application/json"
                 }
                 
+                endpoint = f"{self.base_url}/call/{call_id}"
+                print(f"[VAPI_STOP] Attempting to stop call {call_id} via PATCH {endpoint}")
                 response = await client.patch(
-                    f"{self.base_url}/call/{call_id}",
+                    endpoint,
                     headers=headers,
                     json={"status": "ended"}
                 )
-                
-                return response.status_code == 200
+
+                if response.status_code in (200, 202, 204):
+                    print(f"[VAPI_STOP] Success via PATCH (status={response.status_code}) for call {call_id}")
+                    return True
+
+                try:
+                    body_preview = response.text[:500]
+                except Exception:
+                    body_preview = "<unavailable>"
+                print(
+                    f"[VAPI_STOP] PATCH failed for call {call_id} (status={response.status_code}). Body: {body_preview}"
+                )
+
+                # Fallback: some accounts require POST /call/{id}/stop
+                fallback_endpoint = f"{self.base_url}/call/{call_id}/stop"
+                print(f"[VAPI_STOP] Attempting fallback POST {fallback_endpoint}")
+                fallback_resp = await client.post(
+                    fallback_endpoint,
+                    headers=headers,
+                    json={}
+                )
+
+                if fallback_resp.status_code in (200, 202, 204):
+                    print(
+                        f"[VAPI_STOP] Success via fallback POST (status={fallback_resp.status_code}) for call {call_id}"
+                    )
+                    return True
+
+                try:
+                    fallback_body = fallback_resp.text[:500]
+                except Exception:
+                    fallback_body = "<unavailable>"
+                print(
+                    f"[VAPI_STOP] Fallback POST failed for call {call_id} (status={fallback_resp.status_code}). "
+                    f"Body: {fallback_body}"
+                )
+
+                return False
             
         except Exception as e:
             print(f"Vapi call stop error: {e}")
