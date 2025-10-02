@@ -172,6 +172,7 @@ async def debug_ai():
 # Environment toggles
 AUTO_GENERATE_AI_FEEDBACK = os.getenv("AUTO_GENERATE_AI_FEEDBACK", "0") == "1"
 VAPI_WEBHOOK_SECRET = os.getenv("VAPI_WEBHOOK_SECRET", "")
+TOOLS_STATIC_BEARER_TOKEN = os.getenv("TOOLS_STATIC_BEARER_TOKEN") or os.getenv("TOOLS_BEARER_TOKEN")
 
 # Interview setup workflow assistant (Gemini-powered)
 workflow_assistant = InterviewSetupAssistant(os.getenv("GOOGLE_AI_API_KEY", ""))
@@ -505,6 +506,24 @@ class AIFeedbackResponse(BaseModel):
     nextSteps: Optional[str] = None
     source: Optional[str] = None
 
+
+class InterviewFeedbackPayload(BaseModel):
+    interviewId: str
+    feedbackId: Optional[str] = None
+    userId: Optional[str] = None
+    callId: Optional[str] = None
+    transcript: Optional[str] = None
+    transcriptUrl: Optional[str] = None
+    summary: Optional[str] = None
+    guidance: Optional[str] = None
+    analysis: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    overallScore: Optional[float] = Field(default=None, ge=0, le=100)
+    interviewStatus: Optional[str] = None
+    startedAt: Optional[str] = None
+    endedAt: Optional[str] = None
+    durationSeconds: Optional[int] = Field(default=None, ge=0)
+
 # Firebase token verification dependency
 async def verify_firebase_token(authorization: str = Header(...)):
     if not authorization.startswith("Bearer "):
@@ -536,6 +555,21 @@ async def verify_firebase_token(authorization: str = Header(...)):
             }
         
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+async def verify_static_bearer_token(authorization: str = Header(...)) -> Dict[str, Any]:
+    """Verify that the request contains the configured static bearer token used for tools."""
+    if not TOOLS_STATIC_BEARER_TOKEN:
+        raise HTTPException(status_code=503, detail="Tool authorization not configured")
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+
+    provided = authorization.split(" ", 1)[1].strip()
+    if not hmac.compare_digest(provided, TOOLS_STATIC_BEARER_TOKEN):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return {"authorized": True}
 
 # Endpoints
 @app.get("/health")
@@ -1050,6 +1084,13 @@ class WorkflowFinalizeIn(BaseModel):
     interviewDate: Optional[str] = None  # ISO datetime string
     autoStart: bool = True
 
+class VapiWorkflowData(BaseModel):
+    job_role: str = Field(..., min_length=1)
+    interview_type: str = Field(..., min_length=1)
+    experience_level: str = Field(..., min_length=1)
+    candidate_name: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
 @app.post("/workflow/start")
 async def workflow_start(user_data: dict = Depends(verify_firebase_token)):
     try:
@@ -1162,6 +1203,141 @@ async def workflow_finalize(session_id: str, payload: WorkflowFinalizeIn, user_d
     except Exception as e:
         print(f"Workflow finalize error: {e}")
         raise HTTPException(status_code=500, detail="Failed to finalize workflow")
+
+@app.post("/workflow/generate-interview-from-vapi")
+async def generate_interview_from_vapi(
+    data: VapiWorkflowData,
+    user_data: dict = Depends(verify_firebase_token)
+):
+    """
+    New endpoint to generate an interview from data collected
+    by the visual Vapi workflow.
+    """
+    uid = user_data["uid"]
+    now_iso = _now_iso()
+    interview_id = str(uuid.uuid4())
+
+    print(f"Received data from Vapi Workflow: {data.dict()}")
+
+    fallback_questions: List[Dict[str, str]] = [
+        {
+            "question": f"Tell me about your experience as a {data.job_role}.",
+            "category": "General",
+            "difficulty": "Easy",
+        },
+        {
+            "question": f"Walk me through a recent challenge you faced in a {data.job_role} role and how you resolved it.",
+            "category": "Problem Solving",
+            "difficulty": "Medium",
+        },
+        {
+            "question": f"What skills do you consider essential for success as a {data.job_role}?",
+            "category": "Experience",
+            "difficulty": "Medium",
+        },
+    ]
+
+    prompt = f"""
+You are an expert EchoHire interview coach. Generate exactly 5 interview questions for the following candidate profile:
+
+Job Role: {data.job_role}
+Interview Type: {data.interview_type}
+Experience Level: {data.experience_level}
+
+Instructions:
+1. Tailor each question to the candidate's {data.experience_level} experience level.
+2. Ensure every question aligns with a {data.interview_type} style interview.
+3. Keep all questions directly relevant to the {data.job_role} role.
+4. Cover a mix of categories such as Technical Skills, Problem Solving, Behavioral, and Experience.
+5. Use a variety of difficulty levels ("Easy", "Medium", "Hard").
+
+Return the output as a valid JSON array containing exactly 5 objects. Each object must include:
+  - "question": string
+  - "category": string
+  - "difficulty": string (one of "Easy", "Medium", "Hard")
+
+Return only the JSON array with no additional explanation or markdown formatting.
+"""
+
+    questions: List[Dict[str, str]] = fallback_questions
+
+    try:
+        if not getattr(gemini_service, "model", None):
+            raise RuntimeError("Gemini service is not configured")
+
+        response = await asyncio.to_thread(gemini_service.model.generate_content, prompt)
+        raw_text = getattr(response, "text", "").strip()
+
+        if not raw_text:
+            raise ValueError("Gemini returned an empty response")
+
+        if "```json" in raw_text:
+            raw_text = raw_text.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in raw_text:
+            raw_text = raw_text.split("```", 1)[1].split("```", 1)[0].strip()
+
+        parsed = json.loads(raw_text)
+        if not isinstance(parsed, list):
+            raise ValueError("Gemini response is not a JSON array")
+
+        cleaned_questions: List[Dict[str, str]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                raise ValueError("Invalid item in Gemini response")
+
+            question = str(item.get("question", "")).strip()
+            category = str(item.get("category", "")).strip()
+            difficulty = str(item.get("difficulty", "")).strip()
+
+            if not question or not category or not difficulty:
+                raise ValueError("Incomplete question data in Gemini response")
+
+            cleaned_questions.append({
+                "question": question,
+                "category": category,
+                "difficulty": difficulty,
+            })
+
+        if len(cleaned_questions) != 5:
+            raise ValueError("Gemini did not return exactly 5 questions")
+
+        questions = cleaned_questions
+    except Exception as ai_error:
+        print(f"Gemini call failed or returned invalid JSON: {ai_error}")
+
+    print(f"Generated {len(questions)} questions for the interview.")
+
+    interview_doc = {
+        "id": interview_id,
+        "jobTitle": data.job_role,
+        "companyName": "AI Guided",
+        "interviewDate": now_iso,
+        "status": "scheduled",
+        "overallScore": None,
+        "userId": uid,
+        "createdAt": now_iso,
+        "updatedAt": now_iso,
+        "type": data.interview_type,
+        "level": data.experience_level,
+        "questions": questions,
+        "aiGuided": True,
+    }
+
+    if db is not None:
+        try:
+            db.collection("interviews").document(interview_id).set(interview_doc)
+            print(f"Successfully saved new interview {interview_id} to Firestore.")
+        except Exception as e:
+            print(f"Error saving to Firestore: {e}")
+            raise HTTPException(status_code=500, detail="Could not save interview to database.")
+    else:
+        print("Warning: DB not connected. Interview not saved.")
+
+    return {
+        "status": "success",
+        "message": "Interview generated successfully",
+        "interviewId": interview_id
+    }
 
 # AI Interview Generation Endpoint
 @app.post("/api/generate-interview", response_model=InterviewSessionOut)
@@ -2325,6 +2501,164 @@ async def complete_ai_interview(
     except Exception as e:
         print(f"Complete AI interview error: {e}")
         raise HTTPException(status_code=500, detail="Failed to complete AI interview")
+
+
+@app.post("/tools/end-interview")
+async def tool_end_interview(
+    payload: InterviewFeedbackPayload,
+    _: Dict[str, Any] = Depends(verify_static_bearer_token),
+):
+    """Secure endpoint used by tools (e.g., Vapi) to finalize an interview with feedback."""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Feedback storage unavailable")
+
+    try:
+        interview_ref = db.collection("interviews").document(payload.interviewId)
+        interview_doc = interview_ref.get()
+        if not interview_doc.exists:
+            raise HTTPException(status_code=404, detail="Interview not found")
+
+        interview_data = interview_doc.to_dict() or {}
+        user_id = payload.userId or interview_data.get("userId")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Missing userId for interview feedback")
+
+        now = _now_iso()
+        feedback_id = payload.feedbackId or str(uuid.uuid4())
+
+        analysis: Dict[str, Any] = payload.analysis or {}
+        if not isinstance(analysis, dict):
+            analysis = {}
+
+        metadata: Dict[str, Any] = payload.metadata or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        else:
+            metadata = {k: v for k, v in metadata.items() if v is not None}
+
+        overall_score = payload.overallScore
+        if overall_score is None:
+            possible_score = analysis.get("overallScore")
+            if isinstance(possible_score, (int, float)):
+                overall_score = float(possible_score)
+        if overall_score is not None:
+            try:
+                overall_score = float(overall_score)
+            except (TypeError, ValueError):
+                overall_score = None
+
+        call_id = payload.callId
+        if not call_id:
+            call_id = metadata.get("callId") or metadata.get("call_id")
+        if not call_id and analysis:
+            call_id = analysis.get("callId") or analysis.get("call_id")
+
+        feedback_doc: Dict[str, Any] = {
+            "id": feedback_id,
+            "interviewId": payload.interviewId,
+            "userId": user_id,
+            "callId": call_id,
+            "summary": payload.summary,
+            "guidance": payload.guidance,
+            "analysis": analysis,
+            "metadata": metadata,
+            "overallScore": overall_score,
+            "transcriptUrl": payload.transcriptUrl,
+            "createdAt": payload.startedAt or now,
+            "updatedAt": now,
+            "endedAt": payload.endedAt or now,
+            "durationSeconds": payload.durationSeconds,
+            "source": "vapi_tool",
+        }
+
+        transcript_saved = False
+        if payload.transcript and payload.transcript.strip():
+            feedback_doc["transcriptPreview"] = payload.transcript[:5000]
+            transcript_doc = {
+                "interviewId": payload.interviewId,
+                "userId": user_id,
+                "transcript": payload.transcript,
+                "source": "vapi_tool",
+                "callId": call_id,
+                "transcriptUrl": payload.transcriptUrl,
+                "createdAt": payload.endedAt or now,
+                "updatedAt": now,
+            }
+            db.collection("transcripts").document(payload.interviewId).set(
+                {k: v for k, v in transcript_doc.items() if v is not None},
+                merge=True,
+            )
+            transcript_saved = True
+
+        # Persist feedback in both nested and top-level collections for convenience
+        cleaned_feedback_doc = {k: v for k, v in feedback_doc.items() if v is not None}
+        interview_ref.collection("feedback").document(feedback_id).set(cleaned_feedback_doc, merge=True)
+        db.collection("feedback").document(feedback_id).set(cleaned_feedback_doc, merge=True)
+
+        interview_status = payload.interviewStatus or interview_data.get("status") or "completed"
+        updates: Dict[str, Any] = {
+            "status": interview_status,
+            "updatedAt": now,
+            "feedbackGenerated": True,
+            "feedbackId": feedback_id,
+            "transcriptAvailable": transcript_saved or bool(payload.transcriptUrl),
+            "aiFeedbackSource": "vapi_tool",
+        }
+
+        if overall_score is not None:
+            updates["overallScore"] = overall_score
+        if payload.summary:
+            updates["aiFeedbackSummary"] = payload.summary
+        if payload.guidance:
+            updates["aiFeedbackGuidance"] = payload.guidance
+        if analysis:
+            updates["aiFeedbackMetrics"] = analysis
+        if payload.durationSeconds is not None:
+            updates["interviewDuration"] = payload.durationSeconds
+        if call_id:
+            updates["vapiCallId"] = call_id
+        if metadata:
+            updates["toolMetadata"] = metadata
+        if payload.transcriptUrl:
+            updates["transcriptUrl"] = payload.transcriptUrl
+        if payload.endedAt:
+            updates["completedAt"] = payload.endedAt
+        if payload.startedAt:
+            updates.setdefault("startedAt", payload.startedAt)
+
+        interview_ref.update({k: v for k, v in updates.items() if v is not None})
+
+        response_payload: Dict[str, Any] = {
+            "disposition": "completed",
+            "interviewId": payload.interviewId,
+            "feedbackId": feedback_id,
+            "status": interview_status,
+            "transcriptStored": transcript_saved,
+            "overallScore": overall_score,
+            "summary": payload.summary,
+            "guidance": payload.guidance,
+            "analysis": analysis or None,
+            "updatedAt": now,
+            "next": "deliver_feedback",
+        }
+
+        response_metadata = {
+            key: value
+            for key, value in {
+                "callId": call_id,
+                "transcriptUrl": payload.transcriptUrl,
+            }.items()
+            if value
+        }
+        if response_metadata:
+            response_payload["metadata"] = response_metadata
+
+        return {k: v for k, v in response_payload.items() if v is not None}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"/tools/end-interview error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to finalize interview")
 
 @app.get("/interviews/{interview_id}/transcript")
 async def get_interview_transcript(
