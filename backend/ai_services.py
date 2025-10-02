@@ -808,8 +808,13 @@ class VapiInterviewService:
                             continue
 
                         if response.status_code in (200, 202, 204):
+                            try:
+                                body_preview = response.text[:500]
+                            except Exception:
+                                body_preview = "<unavailable>"
                             print(
-                                f"[VAPI_STOP] Success via {label} (status={response.status_code}) for call {call_id}"
+                                f"[VAPI_STOP] Success via {label} (status={response.status_code}) for call {call_id}. "
+                                f"Body: {body_preview}"
                             )
                             return True
 
