@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Depends, Header, Request, Security
 from fastapi.responses import HTMLResponse
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 import os
 import uuid
 import asyncio
@@ -504,6 +504,9 @@ async def generate_ai_feedback_for_interview(
                 )
                 if not transcript_url and status_url:
                     transcript_url = status_url
+                inline_transcript = call_status.get("transcript")
+                if inline_transcript and inline_transcript.strip():
+                    transcript_text = inline_transcript
 
         if transcript_url:
             print(f"🔗 Attempting transcript download from URL for interview {interview_id}")
@@ -745,7 +748,7 @@ class AIFeedbackResponse(BaseModel):
 
 class InterviewFeedbackPayload(BaseModel):
     call: Dict[str, Any]
-    analysis: Dict[str, Any]
+    analysis: Dict[str, Any] = Field(default_factory=dict)
 
 # Firebase token verification dependency
 async def verify_firebase_token(authorization: str = Header(...)):
@@ -2700,11 +2703,16 @@ async def complete_ai_interview(
                     update_payload["transcriptUrl"] = status_payload.get("transcriptUrl")
                 if status_payload.get("recordingUrl"):
                     update_payload["audioRecordingUrl"] = status_payload.get("recordingUrl")
+                inline_transcript = status_payload.get("transcript")
+                inline_analysis = status_payload.get("analysis")
                 
                 # Also try to get transcript directly via API with retries
                 transcript_url_candidate = update_payload.get("transcriptUrl")
                 if transcript_url_candidate:
                     transcript_text = await download_transcript_from_url(transcript_url_candidate)
+
+                if not transcript_text and inline_transcript and inline_transcript.strip():
+                    transcript_text = inline_transcript
 
                 if not transcript_text:
                     transcript_text = await fetch_transcript_with_retries(vapi_call_id)
@@ -2721,6 +2729,15 @@ async def complete_ai_interview(
                     print(f"✅ Transcript saved directly to Firebase for interview {interview_id}")
                 else:
                     print(f"⚠️ Transcript still unavailable for interview {interview_id} during manual completion")
+
+                if inline_analysis and isinstance(inline_analysis, dict):
+                    try:
+                        db.collection('interviews').document(interview_id).update({
+                            'vapiAnalysis': inline_analysis,
+                            'updatedAt': _now_iso(),
+                        })
+                    except Exception as analysis_save_err:
+                        print(f"⚠️ Failed to persist inline Vapi analysis for {interview_id}: {analysis_save_err}")
                     
             except Exception as e:
                 print(f"Warning: Could not get final Vapi status during completion: {e}")
@@ -2742,13 +2759,30 @@ async def complete_ai_interview(
 
 @app.post("/tools/end-interview")
 async def end_interview_and_save_feedback(
-    payload: InterviewFeedbackPayload,
+    request: Request,
     api_key: str = Depends(verify_static_bearer_token),
 ):
     if db is None:
         raise HTTPException(status_code=503, detail="Feedback storage unavailable")
 
     _ = api_key
+
+    try:
+        raw_payload = await request.json()
+    except Exception as json_err:
+        print(f"end_interview payload decode error: {json_err}")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    try:
+        payload = InterviewFeedbackPayload(**raw_payload)
+    except ValidationError as validation_err:
+        print(
+            "end_interview validation error:",
+            validation_err.json(),
+            "raw=",
+            raw_payload,
+        )
+        raise HTTPException(status_code=422, detail="Invalid tool payload structure")
 
     metadata = payload.call.get("metadata") or {}
     if not isinstance(metadata, dict):
