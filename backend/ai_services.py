@@ -778,64 +778,59 @@ class VapiInterviewService:
             }
     
     async def stop_call(self, call_id: str) -> bool:
-        """Stop an ongoing Vapi call"""
+        """Attempt to explicitly end a Vapi call using multiple fallback strategies."""
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 headers = {
                     "Authorization": f"Bearer {self.vapi_api_key}",
                     "x-api-key": self.vapi_api_key,
                     "Content-Type": "application/json"
                 }
-                
-                endpoint = f"{self.base_url}/call/{call_id}"
-                print(f"[VAPI_STOP] Attempting to stop call {call_id} via PATCH {endpoint}")
-                response = await client.patch(
-                    endpoint,
-                    headers=headers,
-                    json={"status": "ended"}
-                )
 
-                if response.status_code in (200, 202, 204):
-                    print(f"[VAPI_STOP] Success via PATCH (status={response.status_code}) for call {call_id}")
-                    return True
+                attempts = [
+                    ("PATCH", f"{self.base_url}/call/{call_id}", {"action": "end"}, "patch-action"),
+                    ("PATCH", f"{self.base_url}/call/{call_id}", None, "patch-empty"),
+                    ("POST", f"{self.base_url}/call/{call_id}/actions", {"action": "end"}, "post-actions"),
+                    ("POST", f"{self.base_url}/call/{call_id}/end", None, "post-end"),
+                    ("DELETE", f"{self.base_url}/call/{call_id}", None, "delete-call"),
+                ]
 
-                try:
-                    body_preview = response.text[:500]
-                except Exception:
-                    body_preview = "<unavailable>"
-                print(
-                    f"[VAPI_STOP] PATCH failed for call {call_id} (status={response.status_code}). Body: {body_preview}"
-                )
+                for method, url, payload, label in attempts:
+                    try:
+                        print(f"[VAPI_STOP] Attempt {label} via {method} {url}")
+                        if method == "PATCH":
+                            response = await client.patch(url, headers=headers, json=payload)
+                        elif method == "POST":
+                            response = await client.post(url, headers=headers, json=payload)
+                        elif method == "DELETE":
+                            response = await client.delete(url, headers=headers)
+                        else:
+                            continue
 
-                # Fallback: some accounts require POST /call/{id}/stop
-                fallback_endpoint = f"{self.base_url}/call/{call_id}/stop"
-                print(f"[VAPI_STOP] Attempting fallback POST {fallback_endpoint}")
-                fallback_resp = await client.post(
-                    fallback_endpoint,
-                    headers=headers,
-                    json={}
-                )
+                        if response.status_code in (200, 202, 204):
+                            print(
+                                f"[VAPI_STOP] Success via {label} (status={response.status_code}) for call {call_id}"
+                            )
+                            return True
 
-                if fallback_resp.status_code in (200, 202, 204):
-                    print(
-                        f"[VAPI_STOP] Success via fallback POST (status={fallback_resp.status_code}) for call {call_id}"
-                    )
-                    return True
-
-                try:
-                    fallback_body = fallback_resp.text[:500]
-                except Exception:
-                    fallback_body = "<unavailable>"
-                print(
-                    f"[VAPI_STOP] Fallback POST failed for call {call_id} (status={fallback_resp.status_code}). "
-                    f"Body: {fallback_body}"
-                )
+                        try:
+                            body_preview = response.text[:500]
+                        except Exception:
+                            body_preview = "<unavailable>"
+                        print(
+                            f"[VAPI_STOP] {label} failed for call {call_id} (status={response.status_code}). "
+                            f"Body: {body_preview}"
+                        )
+                    except Exception as attempt_err:
+                        print(
+                            f"[VAPI_STOP] {label} raised {type(attempt_err).__name__}: {attempt_err}"
+                        )
 
                 return False
-            
+
         except Exception as e:
             print(f"Vapi call stop error: {e}")
-            return True  # Return True for mock implementation
+            return False
     
     async def get_call_transcript(self, call_id: str) -> Optional[str]:
         """Get the transcript of a completed call. Returns None when unavailable."""
