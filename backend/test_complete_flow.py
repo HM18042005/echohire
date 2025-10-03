@@ -8,7 +8,8 @@ import asyncio
 import json
 from datetime import datetime
 
-async def test_complete_ai_guided_flow():
+
+async def _run_complete_ai_guided_flow() -> None:
     """Test the complete AI guided interview flow"""
     print("🎬 Complete AI Guided Interview Flow Test")
     print("=" * 60)
@@ -153,5 +154,10 @@ async def test_complete_ai_guided_flow():
     print("   - Floating action button on home screen")
     print("   - Automatic navigation to interview screen")
 
+
+def test_complete_ai_guided_flow():
+    asyncio.run(_run_complete_ai_guided_flow())
+
+
 if __name__ == "__main__":
-    asyncio.run(test_complete_ai_guided_flow())
+    asyncio.run(_run_complete_ai_guided_flow())

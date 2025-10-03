@@ -18,7 +18,7 @@ from datetime import datetime
 BACKEND_URL = "http://localhost:8000"
 TEST_COMPANY = "TechCorp Solutions"
 
-async def test_simplified_ai_guided_flow():
+async def _run_simplified_ai_guided_flow() -> bool:
     """Test the complete simplified AI guided interview workflow"""
     print("🧪 End-to-End Test: Simplified AI Guided Interview")
     print("=" * 60)
@@ -158,7 +158,7 @@ async def test_simplified_ai_guided_flow():
         
     except Exception as e:
         print(f"❌ TEST FAILED: {str(e)}")
-        return False
+    return False
 
 # Summary report
 def print_summary():
@@ -176,10 +176,15 @@ def print_summary():
     print("   then the workflow assistant would be called who would take the interview'")
     print("\n🚀 READY FOR PRODUCTION!")
 
+def test_simplified_ai_guided_flow():
+    result = asyncio.run(_run_simplified_ai_guided_flow())
+    assert result is not False
+
+
 if __name__ == "__main__":
     # Run the test
-    result = asyncio.run(test_simplified_ai_guided_flow())
-    
+    result = asyncio.run(_run_simplified_ai_guided_flow())
+
     if result:
         print_summary()
     else:

@@ -7,6 +7,9 @@ Run this to test if Vapi API calls are working correctly
 import asyncio
 import json
 import os
+from typing import Optional
+
+import pytest
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -14,7 +17,8 @@ load_dotenv()
 
 from ai_services import vapi_service
 
-async def test_vapi_integration():
+
+async def _run_vapi_integration() -> Optional[bool]:
     """Test Vapi integration with proper error handling"""
     
     print("🧪 Testing Vapi Integration")
@@ -29,7 +33,7 @@ async def test_vapi_integration():
         print("❌ Configuration issues found:")
         for issue in config_status['issues']:
             print(f"   - {issue}")
-        return False
+        return None
     
     # Test call creation
     print("\n2. Testing Call Creation:")
@@ -70,10 +74,10 @@ async def test_vapi_integration():
     
     except Exception as e:
         print(f"   ❌ Test failed with error: {e}")
-        return False
+    return False
 
 async def main():
-    success = await test_vapi_integration()
+    success = await _run_vapi_integration()
     
     print("\n" + "=" * 50)
     if success:
@@ -83,6 +87,13 @@ async def main():
         print("❌ Vapi integration test FAILED!")
         print("Please check your API key and configuration.")
     print("=" * 50)
+
+
+def test_vapi_integration():
+    success = asyncio.run(_run_vapi_integration())
+    if success is None:
+        pytest.skip("Vapi configuration incomplete; see console output for details.")
+    assert success is not False
 
 if __name__ == "__main__":
     asyncio.run(main())

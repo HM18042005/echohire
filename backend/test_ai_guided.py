@@ -7,7 +7,8 @@ import asyncio
 import json
 from ai_services import VapiInterviewService
 
-async def test_ai_guided_interview():
+
+async def _run_ai_guided_interview() -> None:
     """Test the AI guided interview creation with workflow ID"""
     vapi_service = VapiInterviewService()
     
@@ -96,5 +97,10 @@ async def test_ai_guided_interview():
     except Exception as e:
         print(f"❌ Test failed: {e}")
 
+
+def test_ai_guided_interview():
+    asyncio.run(_run_ai_guided_interview())
+
+
 if __name__ == "__main__":
-    asyncio.run(test_ai_guided_interview())
+    asyncio.run(_run_ai_guided_interview())

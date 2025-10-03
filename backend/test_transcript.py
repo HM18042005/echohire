@@ -6,7 +6,8 @@ Test script to verify transcript generation functionality
 import asyncio
 from ai_services import VapiInterviewService
 
-async def test_transcript_generation():
+
+async def _run_transcript_generation() -> None:
     """Test the transcript generation with mock data"""
     vapi_service = VapiInterviewService()
     
@@ -50,5 +51,10 @@ async def test_transcript_generation():
     except Exception as e:
         print(f"❌ Error: {e}")
 
+
+def test_transcript_generation():
+    asyncio.run(_run_transcript_generation())
+
+
 if __name__ == "__main__":
-    asyncio.run(test_transcript_generation())
+    asyncio.run(_run_transcript_generation())

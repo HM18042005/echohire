@@ -10,3 +10,6 @@ python-dotenv==1.0.0
 # Additional AI dependencies
 asyncio
 
+# Test dependencies
+pytest==7.4.3
+
