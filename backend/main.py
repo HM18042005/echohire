@@ -2853,7 +2853,7 @@ async def complete_ai_interview(
                 settled_status = await wait_for_vapi_call_settled(
                     vapi_call_id,
                     initial_status=initial_status,
-                    force_stop=True,
+                    force_stop=False,
                     max_checks=6,
                     initial_delay_seconds=10,
                 )
