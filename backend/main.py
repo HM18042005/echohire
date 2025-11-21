@@ -59,25 +59,31 @@ async def download_transcript_from_url(url: str) -> Optional[str]:
 
 async def fetch_transcript_with_retries(
     call_id: str,
-    max_attempts: int = 1,
-    initial_delay_seconds: int = 30,
+    max_attempts: int = 5,  # Default to 5 tries
+    initial_delay_seconds: int = 10 # Wait 5s between tries
 ) -> Optional[str]:
-    """Attempt to fetch a transcript via Vapi polling (single attempt)."""
+    """Fetch transcript with actual polling/retries."""
+    
+    delay = initial_delay_seconds
 
-    _ = (max_attempts, initial_delay_seconds)
+    for attempt in range(1, max_attempts + 1):
+        print(f"🎙️ Fetching transcript for call {call_id} (Attempt {attempt}/{max_attempts})")
+        
+        try:
+            transcript = await vapi_service.get_call_transcript(call_id)
+            if transcript:
+                print(f"✅ Transcript retrieved for call {call_id}")
+                return transcript
+        except Exception as err:
+            print(f"⚠️ Transcript fetch warning (Attempt {attempt}): {err}")
 
-    try:
-        print(f"🎙️ Fetching transcript for call {call_id} (single attempt)")
-        transcript = await vapi_service.get_call_transcript(call_id)
-    except Exception as err:
-        print(f"⚠️ Transcript fetch error for call {call_id}: {err}")
-        transcript = None
+        if attempt < max_attempts:
+            print(f"⏳ Transcript not ready. Waiting {delay}s...")
+            await asyncio.sleep(delay)
+            # Optional: Increase delay for next attempt (exponential backoff)
+            # delay *= 1.5 
 
-    if transcript:
-        print(f"✅ Transcript retrieved for call {call_id}")
-        return transcript
-
-    print(f"ℹ️ Transcript not available for call {call_id}; skipping additional retries")
+    print(f"ℹ️ Transcript not available for call {call_id} after {max_attempts} attempts.")
     return None
 
 
